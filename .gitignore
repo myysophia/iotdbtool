@@ -1,0 +1,6 @@
+# .gitignore 文件内容
+
+.config
+.configeu
+.credentials
+
