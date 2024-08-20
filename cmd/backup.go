@@ -35,6 +35,7 @@ var (
 	namespace  string
 	keepLocal  bool
 	chunkSize  int64
+	containers string
 )
 
 func init() {
@@ -48,6 +49,7 @@ func init() {
 	backupCmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
 	backupCmd.Flags().BoolVar(&keepLocal, "keep-local", true, "保留本地备份文件")
 	backupCmd.Flags().Int64Var(&chunkSize, "chunksize", 10*1024*1024, "下载和上传的分片大小（字节）")
+	backupCmd.Flags().StringVar(&containers, "containers", "iotdb-datanode", "要操作的容器，多个容器用逗号分隔")
 
 	rootCmd.AddCommand(backupCmd)
 }
@@ -98,30 +100,36 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 	podStartTime := time.Now()
 	log(1, "正在处理 pod: %s", pod.Name)
 
-	trackStepDuration("刷新数据", func() error {
-		return flushData(clientset, namespace, pod.Name, configPath)
-	})
+	containerList := strings.Split(containers, ",")
+	for _, container := range containerList {
+		container = strings.TrimSpace(container)
+		log(1, "正在处理容器: %s", container)
 
-	backupFileName := getBackupFileName(pod.Name, outName)
-	trackStepDuration("压缩数据", func() error {
-		return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, configPath, outName)
-	})
+		trackStepDuration("刷新数据", func() error {
+			return flushData(clientset, namespace, pod.Name, container, configPath)
+		})
 
-	trackStepDuration("并行下载文件", func() error {
-		return parallelDownloadFromPod(clientset, namespace, pod.Name, backupFileName, "iotdb-datanode", outName, backupFileName, configPath)
-	})
+		backupFileName := getBackupFileName(pod.Name, container, outName)
+		trackStepDuration("压缩数据", func() error {
+			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
+		})
 
-	trackStepDuration("上传到OSS并处理本地文件", func() error {
-		err := uploadToOSS(backupFileName, bucketName)
-		if err != nil {
-			return err
-		}
-		if !keepLocal {
-			return deleteLocalFile(backupFileName)
-		}
-		log(1, "保留本地备份文件: %s", backupFileName)
-		return nil
-	})
+		trackStepDuration("并行下载文件", func() error {
+			return parallelDownloadFromPod(clientset, namespace, pod.Name, backupFileName, container, outName, backupFileName, configPath)
+		})
+
+		trackStepDuration("上传到OSS并处理本地文件", func() error {
+			err := uploadToOSS(backupFileName, bucketName)
+			if err != nil {
+				return err
+			}
+			if !keepLocal {
+				return deleteLocalFile(backupFileName)
+			}
+			log(1, "保留本地备份文件: %s", backupFileName)
+			return nil
+		})
+	}
 
 	podEndTime := time.Now()
 	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
@@ -171,7 +179,7 @@ func getPodList(clientset *kubernetes.Clientset, namespace string, pods []string
 	return clientset.CoreV1().Pods(namespace).List(context.TODO(), options)
 }
 
-func flushData(clientset *kubernetes.Clientset, namespace, podName string, configPath string) error {
+func flushData(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
 	cmd := []string{"/iotdb/sbin/start-cli.sh", "-h", "iotdb-datanode", "-e", "flush on cluster"}
 	kubeconfigPath := configPath
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
@@ -185,7 +193,7 @@ func flushData(clientset *kubernetes.Clientset, namespace, podName string, confi
 		Resource("pods").
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
-			Container: "iotdb-datanode",
+			Container: containerName,
 			Command:   cmd,
 			Stdin:     false,
 			Stdout:    true,
@@ -215,7 +223,7 @@ func flushData(clientset *kubernetes.Clientset, namespace, podName string, confi
 	return nil
 }
 
-func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, outputFileName string, configPath string, outName string) error {
+func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, outputFileName, containerName, configPath, outName string) error {
 	cmd := []string{"tar", "-czf", outputFileName, dataDir}
 	kubeconfigPath := configPath
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
@@ -229,7 +237,7 @@ func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, 
 		Resource("pods").
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
-			Container: "iotdb-datanode",
+			Container: containerName,
 			Command:   cmd,
 			Stdin:     false,
 			Stdout:    true,
@@ -392,11 +400,11 @@ func executePodCommand(clientset *kubernetes.Clientset, namespace, podName, cont
 	return stdout.String(), nil
 }
 
-func getBackupFileName(podName, customName string) string {
+func getBackupFileName(podName, containerName, customName string) string {
 	if customName != "" {
-		return fmt.Sprintf("%s_%s_%s.tar.gz", customName, podName, time.Now().Format("20060102150405"))
+		return fmt.Sprintf("%s_%s_%s_%s.tar.gz", customName, podName, containerName, time.Now().Format("20060102150405"))
 	}
-	return fmt.Sprintf("%s_%s_%s.tar.gz", customName, podName, time.Now().Format("20060102150405"))
+	return fmt.Sprintf("%s_%s_%s.tar.gz", podName, containerName, time.Now().Format("20060102150405"))
 }
 
 func uploadToOSS(fileName, bucketName string) error {
@@ -448,7 +456,7 @@ func uploadToOSS(fileName, bucketName string) error {
 	// 创建进度条
 	bar := progressbar.DefaultBytes(
 		fileSize,
-		fileName+" 正在上传",
+		fileName+" 正��上传",
 	)
 
 	// 分片上传
@@ -460,7 +468,7 @@ func uploadToOSS(fileName, bucketName string) error {
 		}
 		partSize := end - i
 
-		// 创建一个���制读取大小的 Reader
+		// 创建一个制读取大小的 Reader
 		partReader := io.LimitReader(file, partSize)
 
 		part, err := bucket.UploadPart(imur, partReader, partSize, int(i/partSize)+1)

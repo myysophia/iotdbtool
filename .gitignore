@@ -3,4 +3,4 @@
 .config
 .configeu
 .credentials
-
+*.tar.gz
