@@ -28,6 +28,10 @@ set CGO_ENABLED=0
 set GOOS=linux
 set GOARCH=amd64
 go build -o iotdbbackup
+
+
+# linux 上build
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 ```
 
  设置为 0，可以避免对系统上 C 库的依赖，从而生成更加通用的二进制文件。
