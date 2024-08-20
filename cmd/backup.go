@@ -33,6 +33,8 @@ var (
 	verbose    int
 	configPath string
 	namespace  string
+	keepLocal  bool
+	chunkSize  int64
 )
 
 func init() {
@@ -44,6 +46,8 @@ func init() {
 	backupCmd.Flags().IntVarP(&verbose, "verbose", "v", 0, "Verbose level (0: silent, 1: basic, 2: detailed)")
 	backupCmd.Flags().StringVar(&configPath, "config", "", "Path to the kubeconfig file")
 	backupCmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
+	backupCmd.Flags().BoolVar(&keepLocal, "keep-local", true, "保留本地备份文件")
+	backupCmd.Flags().Int64Var(&chunkSize, "chunksize", 10*1024*1024, "下载和上传的分片大小（字节）")
 
 	rootCmd.AddCommand(backupCmd)
 }
@@ -107,16 +111,20 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 		return parallelDownloadFromPod(clientset, namespace, pod.Name, backupFileName, "iotdb-datanode", outName, backupFileName, configPath)
 	})
 
-	trackStepDuration("上传到OSS并删除本地文件", func() error {
+	trackStepDuration("上传到OSS并处理本地文件", func() error {
 		err := uploadToOSS(backupFileName, bucketName)
 		if err != nil {
 			return err
 		}
-		return deleteLocalFile(backupFileName)
+		if !keepLocal {
+			return deleteLocalFile(backupFileName)
+		}
+		log(1, "保留本地备份文件: %s", backupFileName)
+		return nil
 	})
 
 	podEndTime := time.Now()
-	log(2, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
+	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
 }
 
 func getClientSet(kubeconfig string) (*kubernetes.Clientset, error) {
@@ -257,9 +265,7 @@ func parallelDownloadFromPod(clientset *kubernetes.Clientset, namespace, podName
 		return err
 	}
 
-	// 设置分片大小和并发数
-	chunkSize := int64(100 * 1024 * 1024) // 100MB
-	concurrency := 5
+	// 使用配置的 chunkSize
 	chunks := (fileSize + chunkSize - 1) / chunkSize
 
 	var wg sync.WaitGroup
@@ -303,7 +309,7 @@ func parallelDownloadFromPod(clientset *kubernetes.Clientset, namespace, podName
 		}(start, end)
 
 		// 限制并发数
-		if i%int64(concurrency) == 0 {
+		if i%int64(5) == 0 {
 			wg.Wait()
 		}
 	}
@@ -423,7 +429,8 @@ func uploadToOSS(fileName, bucketName string) error {
 	}
 	fileSize := fileInfo.Size()
 
-	partSize := int64(10 * 1024 * 1024)
+	// 设置分片大小为配置的 chunkSize
+	partSize := chunkSize
 
 	// 打开文件
 	file, err := os.Open(fileName)
@@ -453,7 +460,7 @@ func uploadToOSS(fileName, bucketName string) error {
 		}
 		partSize := end - i
 
-		// 创建一个限制读取大小的 Reader
+		// 创建一个���制读取大小的 Reader
 		partReader := io.LimitReader(file, partSize)
 
 		part, err := bucket.UploadPart(imur, partReader, partSize, int(i/partSize)+1)
