@@ -274,7 +274,7 @@ func downloadFileFromPod(clientset *kubernetes.Clientset, namespace, podName, ba
 	if err != nil {
 		return fmt.Errorf("error creating executor: %v", err)
 	}
-	log(2, " pod %s 开始解压缩到local %s", podName, backupFileName)
+	log(2, "pod %s 开始解压缩到local %s", podName, backupFileName)
 
 	// 打开本地文件以写入下载内容
 	file, err := os.Create(localFilePath)
