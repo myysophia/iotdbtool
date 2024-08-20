@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
@@ -97,22 +100,23 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 
 	backupFileName := getBackupFileName(pod.Name, outName)
 	trackStepDuration("压缩数据", func() error {
-		log(2, "开始压缩数据到 %s", backupFileName)
-		return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, configPath)
+		return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, configPath, outName)
 	})
 
-	trackStepDuration("下载文件", func() error {
-		log(2, "开始下载文件 %s 到本地", backupFileName)
-		return downloadFileFromPod(clientset, namespace, pod.Name, backupFileName, "iotdb-datanode", outName, backupFileName, configPath)
+	trackStepDuration("并行下载文件", func() error {
+		return parallelDownloadFromPod(clientset, namespace, pod.Name, backupFileName, "iotdb-datanode", outName, backupFileName, configPath)
 	})
 
-	trackStepDuration("上传到OSS", func() error {
-		log(2, "开始上传文件 %s 到 OSS", backupFileName)
-		return uploadToOSS(backupFileName, bucketName)
+	trackStepDuration("上传到OSS并删除本地文件", func() error {
+		err := uploadToOSS(backupFileName, bucketName)
+		if err != nil {
+			return err
+		}
+		return deleteLocalFile(backupFileName)
 	})
 
 	podEndTime := time.Now()
-	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
+	log(2, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
 }
 
 func getClientSet(kubeconfig string) (*kubernetes.Clientset, error) {
@@ -203,7 +207,7 @@ func flushData(clientset *kubernetes.Clientset, namespace, podName string, confi
 	return nil
 }
 
-func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, outputFileName string, configPath string) error {
+func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, outputFileName string, configPath string, outName string) error {
 	cmd := []string{"tar", "-czf", outputFileName, dataDir}
 	kubeconfigPath := configPath
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
@@ -246,24 +250,116 @@ func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, 
 	return nil
 }
 
-func downloadFileFromPod(clientset *kubernetes.Clientset, namespace, podName, backupFileName, containerName, remoteFilePath, localFilePath string, configPath string) error {
-	cmd := []string{"tar", "cf", "-", backupFileName}
-	kubeconfigPath := configPath
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+func parallelDownloadFromPod(clientset *kubernetes.Clientset, namespace, podName, remoteFileName, containerName, localDir, localFileName, configPath string) error {
+	// 获取文件大小
+	fileSize, err := getFileSizeFromPod(clientset, namespace, podName, containerName, remoteFileName, configPath)
 	if err != nil {
-		return fmt.Errorf("error building config from kubeconfig: %v", err)
+		return err
 	}
 
-	req := clientset.CoreV1().RESTClient().
-		Post().
+	// 设置分片大小和并发数
+	chunkSize := int64(100 * 1024 * 1024) // 100MB
+	concurrency := 5
+	chunks := (fileSize + chunkSize - 1) / chunkSize
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, chunks)
+
+	// 创建本地文件
+	localFile, err := os.Create(filepath.Join(localFileName))
+	if err != nil {
+		log(2, "创建本地文件失败: %v", err)
+		return err
+	}
+	defer localFile.Close()
+
+	// 创建进度条
+	bar := progressbar.DefaultBytes(
+		fileSize,
+		localFileName+" 正在下载",
+	)
+
+	// 并行下载
+	for i := int64(0); i < chunks; i++ {
+		if len(errChan) > 0 {
+			return <-errChan
+		}
+
+		start := i * chunkSize
+		end := (i + 1) * chunkSize
+		if end > fileSize {
+			end = fileSize
+		}
+
+		wg.Add(1)
+		go func(start, end int64) {
+			defer wg.Done()
+			err := downloadChunk(clientset, namespace, podName, containerName, remoteFileName, localFile, start, end, configPath)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			bar.Add(int(end - start))
+		}(start, end)
+
+		// 限制并发数
+		if i%int64(concurrency) == 0 {
+			wg.Wait()
+		}
+	}
+
+	wg.Wait()
+
+	if len(errChan) > 0 {
+		return <-errChan
+	}
+
+	return nil
+}
+
+func getFileSizeFromPod(clientset *kubernetes.Clientset, namespace, podName, containerName, fileName, configPath string) (int64, error) {
+	cmd := []string{"stat", "-c", "%s", fileName}
+
+	output, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
+	if err != nil {
+		return 0, err
+	}
+
+	size, err := strconv.ParseInt(strings.TrimSpace(output), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("无法解析文件大小: %v", err)
+	}
+
+	return size, nil
+}
+
+func downloadChunk(clientset *kubernetes.Clientset, namespace, podName, containerName, remoteFileName string, localFile *os.File, start, end int64, configPath string) error {
+	cmd := []string{"dd", "if=" + remoteFileName, "bs=1", "skip=" + strconv.FormatInt(start, 10), "count=" + strconv.FormatInt(end-start, 10)}
+
+	output, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
+	if err != nil {
+		return err
+	}
+
+	_, err = localFile.WriteAt([]byte(output), start)
+	return err
+}
+
+func executePodCommand(clientset *kubernetes.Clientset, namespace, podName, containerName string, cmd []string, configPath string) (string, error) {
+	kubeconfigPath := configPath
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		return "", fmt.Errorf("error building config from kubeconfig: %v", err)
+	}
+
+	req := clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
 		Namespace(namespace).
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
-			Command:   cmd,
 			Container: containerName,
+			Command:   cmd,
 			Stdin:     false,
 			Stdout:    true,
 			Stderr:    true,
@@ -272,27 +368,22 @@ func downloadFileFromPod(clientset *kubernetes.Clientset, namespace, podName, ba
 
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
-		return fmt.Errorf("error creating executor: %v", err)
+		return "", fmt.Errorf("error creating executor: %v", err)
 	}
-	log(2, "pod %s 开始解压缩到local %s", podName, backupFileName)
 
-	// 打开本地文件以写入下载内容
-	file, err := os.Create(localFilePath)
-	if err != nil {
-		return fmt.Errorf("error creating local file: %v", err)
-	}
-	defer file.Close()
-
-	// 将文件内容从 pod 传输到本地文件
+	var stdout, stderr bytes.Buffer
 	err = exec.Stream(remotecommand.StreamOptions{
-		Stdout: file,
-		Stderr: os.Stderr,
+		Stdin:  nil,
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
 	})
+
 	if err != nil {
-		return fmt.Errorf("error executing stream: %v", err)
+		return "", fmt.Errorf("error executing command: %v, stderr: %s", err, stderr.String())
 	}
-	log(2, "开始从 pod %s 下载文件 %s 到本地", podName, backupFileName)
-	return nil
+
+	return stdout.String(), nil
 }
 
 func getBackupFileName(podName, customName string) string {
@@ -332,8 +423,7 @@ func uploadToOSS(fileName, bucketName string) error {
 	}
 	fileSize := fileInfo.Size()
 
-	// 设置分片大小为5MB
-	partSize := int64(5 * 1024 * 1024)
+	partSize := int64(10 * 1024 * 1024)
 
 	// 打开文件
 	file, err := os.Open(fileName)
@@ -351,7 +441,7 @@ func uploadToOSS(fileName, bucketName string) error {
 	// 创建进度条
 	bar := progressbar.DefaultBytes(
 		fileSize,
-		"正在上传",
+		fileName+" 正在上传",
 	)
 
 	// 分片上传
@@ -382,6 +472,15 @@ func uploadToOSS(fileName, bucketName string) error {
 	}
 
 	log(1, "文件 %s 已上传到OSS，将在 %s 后自动删除", fileName, expirationTime.Format("2006-01-02 15:04:05"))
+	return nil
+}
+
+func deleteLocalFile(fileName string) error {
+	err := os.Remove(fileName)
+	if err != nil {
+		return fmt.Errorf("删除本地文件 %s 失败: %v", fileName, err)
+	}
+	log(2, "本地文件 %s 已删除", fileName)
 	return nil
 }
 
