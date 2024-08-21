@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
-
 	//"sync"
 	"time"
 
@@ -117,12 +115,20 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 		})
 
 		trackStepDuration("下载文件", func() error {
-			return downloadFileFromPod(clientset, namespace, pod.Name, backupFileName, container, outName, backupFileName, configPath)
+			err := downloadFromPod(clientset, namespace, pod.Name, backupFileName, container, outName, backupFileName, configPath)
+			if err != nil {
+				return err
+			}
+			if !keepLocal {
+				return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
+			}
+			return nil
 		})
 
 		trackStepDuration("上传到OSS并处理本地文件", func() error {
 			err := uploadToOSS(backupFileName, bucketName)
 			if err != nil {
+				log(2, "上传到OSS失败: %v", err)
 				return err
 			}
 			if !keepLocal {
@@ -284,122 +290,6 @@ func getFileSizeFromPod(clientset *kubernetes.Clientset, namespace, podName, con
 	return size, nil
 }
 
-func downloadFileFromPod(clientset *kubernetes.Clientset, namespace, podName, backupFileName, containerName, remoteFilePath, localFilePath string, configPath string) error {
-	cmd := []string{"tar", "cf", "-", backupFileName}
-	kubeconfigPath := configPath
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	if err != nil {
-		return fmt.Errorf("error building config from kubeconfig: %v", err)
-	}
-
-	req := clientset.CoreV1().RESTClient().
-		Post().
-		Resource("pods").
-		Name(podName).
-		Namespace(namespace).
-		SubResource("exec").
-		VersionedParams(&v1.PodExecOptions{
-			Command:   cmd,
-			Container: containerName,
-			Stdin:     false,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       false,
-		}, scheme.ParameterCodec)
-
-	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
-	if err != nil {
-		return fmt.Errorf("error creating executor: %v", err)
-	}
-	log(2, " pod %s 开始解压缩到local %s", podName, backupFileName)
-
-	// 打开本地文件以写入下载内容
-	file, err := os.Create(localFilePath)
-	if err != nil {
-		return fmt.Errorf("error creating local file: %v", err)
-	}
-	defer file.Close()
-
-	// 将文件内容从 pod 传输到本地文件
-	err = exec.Stream(remotecommand.StreamOptions{
-		Stdout: file,
-		Stderr: os.Stderr,
-	})
-	if err != nil {
-		return fmt.Errorf("error executing stream: %v", err)
-	}
-	log(2, "开始从 pod %s 下载文件 %s 到本地", podName, backupFileName)
-	return nil
-}
-
-func parallelDownloadFromPod(clientset *kubernetes.Clientset, namespace, podName, remoteFileName, containerName, localDir, localFileName, configPath string) error {
-	// 获取文件大小
-	fileSize, err := getFileSizeFromPod(clientset, namespace, podName, containerName, remoteFileName, configPath)
-	if err != nil {
-		return err
-	}
-
-	// 设置分片大小和并发数
-	chunkSize := int64(100 * 1024 * 1024) // 100MB
-	concurrency := 5
-	chunks := (fileSize + chunkSize - 1) / chunkSize
-
-	var wg sync.WaitGroup
-	errChan := make(chan error, chunks)
-
-	// 创建本地文件
-	localFile, err := os.Create(filepath.Join(localFileName))
-	if err != nil {
-		log(2, "创建本地文件失败: %v", err)
-		return err
-	}
-	defer localFile.Close()
-
-	// 创建进度条
-	bar := progressbar.DefaultBytes(
-		fileSize,
-		localFileName+" 正在下载",
-	)
-
-	// 并行下载
-	for i := int64(0); i < chunks; i++ {
-		if len(errChan) > 0 {
-			return <-errChan
-		}
-
-		start := i * chunkSize
-		end := (i + 1) * chunkSize
-		if end > fileSize {
-			end = fileSize
-		}
-
-		wg.Add(1)
-		go func(start, end int64) {
-			defer wg.Done()
-			err := downloadChunk1(clientset, namespace, podName, containerName, remoteFileName, localFile, start, end, configPath)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			bar.Add(int(end - start))
-		}(start, end)
-
-		// 限制并发数
-		if i%int64(concurrency) == 0 {
-			wg.Wait()
-		}
-	}
-
-	wg.Wait()
-
-	if len(errChan) > 0 {
-		return <-errChan
-	}
-
-	return nil
-}
-
 func downloadFromPod(clientset *kubernetes.Clientset, namespace, podName, remoteFileName, containerName, localDir, localFileName, configPath string) error {
 	// 获取文件大小
 	fileSize, err := getFileSizeFromPod(clientset, namespace, podName, containerName, remoteFileName, configPath)
@@ -458,18 +348,6 @@ func downloadChunk(clientset *kubernetes.Clientset, namespace, podName, containe
 	return []byte(output), nil
 }
 
-func downloadChunk1(clientset *kubernetes.Clientset, namespace, podName, containerName, remoteFileName string, localFile *os.File, start, end int64, configPath string) error {
-	cmd := []string{"dd", "if=" + remoteFileName, "bs=1", "skip=" + strconv.FormatInt(start, 10), "count=" + strconv.FormatInt(end-start, 10)}
-
-	output, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
-	if err != nil {
-		return err
-	}
-
-	_, err = localFile.WriteAt([]byte(output), start)
-	return err
-}
-
 func executePodCommand(clientset *kubernetes.Clientset, namespace, podName, containerName string, cmd []string, configPath string) (string, error) {
 	kubeconfigPath := configPath
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
@@ -509,6 +387,18 @@ func executePodCommand(clientset *kubernetes.Clientset, namespace, podName, cont
 	}
 
 	return stdout.String(), nil
+}
+
+func deletePodFile(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, configPath string) error {
+	cmd := []string{"rm", "-f", fileName}
+
+	_, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
+	if err != nil {
+		return fmt.Errorf("删除 pod 中的文件失败: %v", err)
+	}
+
+	log(1, "已删除 pod %s 中的文件: %s", podName, fileName)
+	return nil
 }
 
 func getBackupFileName(podName, containerName, customName string) string {
