@@ -130,7 +130,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 	}
 
 	podEndTime := time.Now()
-	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
+	log(2, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
 }
 
 func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
@@ -147,7 +147,7 @@ func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName,
 	}
 
 	// 如果不存在，下载并安装 ossutil64
-	log(1, "正在下载并安装 ossutil64 到 pod %s", podName)
+	log(2, "正在下载并安装 ossutil64 到 pod %s", podName)
 	downloadCmd := `
 		curl -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64 && \
 		chmod 755 ossutil64
@@ -157,7 +157,7 @@ func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName,
 		return fmt.Errorf("下载并安装 ossutil64 失败: %v", err)
 	}
 
-	log(1, "已在 pod %s 中下载并安装 ossutil64", podName)
+	log(2, "已在 pod %s 中下载并安装 ossutil64", podName)
 	return nil
 }
 
@@ -191,7 +191,7 @@ accessKeySecret=%s
 		--force
 	`, fileName, bucketName, configFileName)
 
-	log(1, "上传文件到 OSS 命令: %s", uploadCmd)
+	log(2, "上传文件到 OSS 命令: %s", uploadCmd)
 	// 在 pod 中执行上传命令
 	cmd := []string{"sh", "-c", uploadCmd}
 
@@ -305,7 +305,7 @@ func flushData(clientset *kubernetes.Clientset, namespace, podName, containerNam
 		return fmt.Errorf("error streaming command: %v, stderr: %s", err, stderr.String())
 	}
 
-	log(1, "Flush command output: %s", stdout.String())
+	log(2, "Flush command output: %s", stdout.String())
 
 	time.Sleep(5 * time.Second)
 	return nil
@@ -534,7 +534,7 @@ func uploadToOSS(fileName, bucketName string) error {
 		return fmt.Errorf("完成分片上传失败: %v", err)
 	}
 
-	log(1, "文件 %s 已上传到OSS，将在 %s 后自动删除", fileName, expirationTime.Format("2006-01-02 15:04:05"))
+	log(2, "文件 %s 已上传到OSS，将在 %s 后自动删除", fileName, expirationTime.Format("2006-01-02 15:04:05"))
 	return nil
 }
 
