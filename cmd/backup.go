@@ -46,7 +46,7 @@ func init() {
 	backupCmd.Flags().StringVarP(&outName, "outname", "o", "", "Output file name for the backup")
 	backupCmd.Flags().StringVarP(&bucketName, "bucketname", "b", "", "OSS bucket name")
 	backupCmd.Flags().IntVarP(&verbose, "verbose", "v", 0, "Verbose level (0: silent, 1: basic, 2: detailed)")
-	backupCmd.Flags().StringVar(&configPath, "config", "", "Path to the kubeconfig file")
+	backupCmd.Flags().StringVar(&configPath, "config", "/root/.kube/config", "Path to the kubeconfig file")
 	backupCmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
 	backupCmd.Flags().BoolVar(&keepLocal, "keep-local", true, "保留本地备份文件")
 	backupCmd.Flags().Int64Var(&chunkSize, "chunksize", 10*1024*1024, "下载和上传的分片大小（字节）")
