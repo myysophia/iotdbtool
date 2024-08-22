@@ -61,7 +61,7 @@ var backupCmd = &cobra.Command{
 	Long:  `Backup IoTDB data from Kubernetes pods and upload to OSS.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		startTime := time.Now()
-		log(1, "开始时间: %s", startTime.Format("2006-01-02 15:04:05"))
+		log(2, "开始时间: %s", startTime.Format("2006-01-02 15:04:05"))
 
 		clientset, err := getClientSet(configPath)
 		if err != nil {
@@ -104,22 +104,22 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 	containerList := strings.Split(containers, ",")
 	for _, container := range containerList {
 		container = strings.TrimSpace(container)
-		log(1, "正在处理容器: %s", container)
+		log(2, "正在处理容器: %s", container)
 
-		trackStepDuration("确保 ossutil64 可用", func() error {
+		trackStepDuration("ossutil64 check", func() error {
 			return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
 		})
 
-		trackStepDuration("刷新数据", func() error {
+		trackStepDuration("execute hook", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
 
 		backupFileName := getBackupFileName(pod.Name, container, outName)
-		trackStepDuration("压缩数据", func() error {
+		trackStepDuration("compress data", func() error {
 			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
 		})
 
-		trackStepDuration("上传到OSS并删除Pod中的文件", func() error {
+		trackStepDuration("upload to oss and delete local file", func() error {
 			err := uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
 			if err != nil {
 				log(2, "上传到OSS并删除Pod中的文件失败: %v", err)
@@ -130,7 +130,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 	}
 
 	podEndTime := time.Now()
-	log(2, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
+	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
 }
 
 func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
@@ -349,7 +349,6 @@ func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, 
 		return fmt.Errorf("error streaming command: %v, stderr: %s", err, stderr.String())
 	}
 
-	log(1, "Compression command output: %s", stdout.String())
 	log(2, "压缩文件 %s 成功", outputFileName)
 	return nil
 }
