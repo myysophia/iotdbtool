@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
+
+	//"strconv"
 	"strings"
 	//"sync"
 	"time"
@@ -105,6 +106,10 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 		container = strings.TrimSpace(container)
 		log(1, "正在处理容器: %s", container)
 
+		trackStepDuration("确保 ossutil64 可用", func() error {
+			return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
+		})
+
 		trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
@@ -114,33 +119,108 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
 		})
 
-		trackStepDuration("下载文件", func() error {
-			err := downloadFromPod(clientset, namespace, pod.Name, backupFileName, container, outName, backupFileName, configPath)
+		trackStepDuration("上传到OSS并删除Pod中的文件", func() error {
+			err := uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
 			if err != nil {
+				log(2, "上传到OSS并删除Pod中的文件失败: %v", err)
 				return err
 			}
-			if !keepLocal {
-				return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
-			}
-			return nil
-		})
-
-		trackStepDuration("上传到OSS并处理本地文件", func() error {
-			err := uploadToOSS(backupFileName, bucketName)
-			if err != nil {
-				log(2, "上传到OSS失败: %v", err)
-				return err
-			}
-			if !keepLocal {
-				return deleteLocalFile(backupFileName)
-			}
-			log(1, "保留本地备份文件: %s", backupFileName)
-			return nil
+			return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
 		})
 	}
 
 	podEndTime := time.Now()
 	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, podEndTime.Sub(podStartTime))
+}
+
+func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
+	// 检查 ossutil64 是否已存在
+	checkCmd := "if [ -f ./ossutil64 ] && [ -x ./ossutil64 ]; then echo 'exists'; else echo 'not found'; fi"
+	output, err := executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", checkCmd}, configPath)
+	if err != nil {
+		return fmt.Errorf("检查 ossutil64 是否存在失败: %v", err)
+	}
+
+	if strings.TrimSpace(output) == "exists" {
+		log(2, "ossutil64 已存在于 pod %s 中", podName)
+		return nil
+	}
+
+	// 如果不存在，下载并安装 ossutil64
+	log(1, "正在下载并安装 ossutil64 到 pod %s", podName)
+	downloadCmd := `
+		curl -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64 && \
+		chmod 755 ossutil64
+	`
+	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", downloadCmd}, configPath)
+	if err != nil {
+		return fmt.Errorf("下载并安装 ossutil64 失败: %v", err)
+	}
+
+	log(1, "已在 pod %s 中下载并安装 ossutil64", podName)
+	return nil
+}
+
+func uploadToOSSFromPod(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, bucketName, configPath string) error {
+	credentials, err := loadCredentials(".credentials")
+	if err != nil {
+		return err
+	}
+
+	// 首先创建 ossutil 配置文件
+	configContent := fmt.Sprintf(`
+[Credentials]
+language=EN
+endpoint=%s
+accessKeyID=%s
+accessKeySecret=%s
+`, credentials["ENDPOINT"], credentials["AK"], credentials["SK"])
+
+	configFileName := ".ossutilconfig"
+	createConfigCmd := fmt.Sprintf(`echo '%s' > %s`, configContent, configFileName)
+
+	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", createConfigCmd}, configPath)
+	if err != nil {
+		return fmt.Errorf("创建 ossutil 配置文件失败: %v", err)
+	}
+
+	// 使用配置文件上传
+	uploadCmd := fmt.Sprintf(`
+		./ossutil64 cp %s oss://%s/ \
+		-c %s \
+		--force
+	`, fileName, bucketName, configFileName)
+
+	log(1, "上传文件到 OSS 命令: %s", uploadCmd)
+	// 在 pod 中执行上传命令
+	cmd := []string{"sh", "-c", uploadCmd}
+
+	stdout, stderr, err := executePodCommandWithStderr(clientset, namespace, podName, containerName, cmd, configPath)
+	if err != nil {
+		return fmt.Errorf("上传文件到 OSS 失败: %v, stderr: %s", err, stderr)
+	}
+
+	// 删除配置文件
+	deleteConfigCmd := fmt.Sprintf("rm -f %s", configFileName)
+	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", deleteConfigCmd}, configPath)
+	if err != nil {
+		log(2, "警告: 删除 ossutil 配置文件失败: %v", err)
+	}
+
+	log(2, "文件 %s 已从 pod %s 上传到 OSS。输出: %s", fileName, podName, stdout)
+	return nil
+}
+
+func deletePodFile(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, configPath string) error {
+	cmd := []string{"rm", "-f", fileName}
+
+	_, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
+	if err != nil {
+		return fmt.Errorf("删除 pod 中的文件失败: %v", err)
+	}
+
+	log(2, "已删除 pod %s 中的文件: %s", podName, fileName)
+	return nil
 }
 
 func getClientSet(kubeconfig string) (*kubernetes.Clientset, error) {
@@ -290,64 +370,6 @@ func getFileSizeFromPod(clientset *kubernetes.Clientset, namespace, podName, con
 	return size, nil
 }
 
-func downloadFromPod(clientset *kubernetes.Clientset, namespace, podName, remoteFileName, containerName, localDir, localFileName, configPath string) error {
-	// 获取文件大小
-	fileSize, err := getFileSizeFromPod(clientset, namespace, podName, containerName, remoteFileName, configPath)
-	if err != nil {
-		return err
-	}
-
-	// 创建本地文件
-	localFile, err := os.Create(filepath.Join(localFileName))
-	if err != nil {
-		return fmt.Errorf("创建本地文件失败: %v", err)
-	}
-	defer localFile.Close()
-
-	// 创建进度条
-	bar := progressbar.DefaultBytes(
-		fileSize,
-		localFileName+"正在下载",
-	)
-
-	// 设置读取的块大小
-	// blockSize := int64(1024 * 1024) // 1MB
-	blockSize := chunkSize
-
-	// 逐块下载文件
-	for offset := int64(0); offset < fileSize; offset += blockSize {
-		end := offset + blockSize
-		if end > fileSize {
-			end = fileSize
-		}
-
-		chunk, err := downloadChunk(clientset, namespace, podName, containerName, remoteFileName, offset, end-offset, configPath)
-		if err != nil {
-			return fmt.Errorf("下载文件块失败: %v", err)
-		}
-
-		_, err = localFile.WriteAt(chunk, offset)
-		if err != nil {
-			return fmt.Errorf("写入文件块失败: %v", err)
-		}
-
-		bar.Add(len(chunk))
-	}
-
-	return nil
-}
-
-func downloadChunk(clientset *kubernetes.Clientset, namespace, podName, containerName, remoteFileName string, offset, length int64, configPath string) ([]byte, error) {
-	cmd := []string{"dd", "if=" + remoteFileName, "bs=1", "skip=" + strconv.FormatInt(offset, 10), "count=" + strconv.FormatInt(length, 10)}
-
-	output, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return []byte(output), nil
-}
-
 func executePodCommand(clientset *kubernetes.Clientset, namespace, podName, containerName string, cmd []string, configPath string) (string, error) {
 	kubeconfigPath := configPath
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
@@ -389,16 +411,41 @@ func executePodCommand(clientset *kubernetes.Clientset, namespace, podName, cont
 	return stdout.String(), nil
 }
 
-func deletePodFile(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, configPath string) error {
-	cmd := []string{"rm", "-f", fileName}
-
-	_, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
+func executePodCommandWithStderr(clientset *kubernetes.Clientset, namespace, podName, containerName string, cmd []string, configPath string) (string, string, error) {
+	kubeconfigPath := configPath
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
-		return fmt.Errorf("删除 pod 中的文件失败: %v", err)
+		return "", "", fmt.Errorf("error building config from kubeconfig: %v", err)
 	}
 
-	log(1, "已删除 pod %s 中的文件: %s", podName, fileName)
-	return nil
+	req := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&v1.PodExecOptions{
+			Container: containerName,
+			Command:   cmd,
+			Stdin:     false,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       false,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		return "", "", fmt.Errorf("error creating executor: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdin:  nil,
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+
+	return stdout.String(), stderr.String(), err
 }
 
 func getBackupFileName(podName, containerName, customName string) string {
