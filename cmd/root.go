@@ -21,7 +21,7 @@ func Execute() {
 
 func init() {
 	// 可以在这里添加全局命令标志，或者初始化子命令
-	rootCmd.PersistentFlags().StringP("config", "c", ".configeu", "Path to the kubeconfig file")
+	rootCmd.PersistentFlags().StringP("config", "c", "/root/.kube/config", "Path to the kubeconfig file")
 	rootCmd.PersistentFlags().StringP("namespace", "n", "iotdb", "Kubernetes namespace")
 	rootCmd.PersistentFlags().StringP("pods", "p", "iotdb-datanode-0", "backup by pod name")
 	rootCmd.PersistentFlags().StringP("label", "l", "statefulset.kubernetes.io/pod-name=iotdb-datanode-0", "backup by pod label")
