@@ -33,5 +33,5 @@ func init() {
 	rootCmd.PersistentFlags().StringP("chunksize", "s", "10485760", "default chunksize is 10MB")
 	rootCmd.PersistentFlags().StringP("containers", "t", "iotdb-datanode", "default container")
 	rootCmd.PersistentFlags().StringP("cluster-name", "m", "", "k8s clusterName")
-	rootCmd.PersistentFlags().StringP("uploadoss", "l", "yes", "uploadoss flag，default is true")
+	rootCmd.PersistentFlags().StringP("uploadoss", "", "yes", "uploadoss flag，default is true")
 }
