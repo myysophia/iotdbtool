@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strconv"
 
 	//"strconv"
@@ -32,17 +30,18 @@ import (
 )
 
 var (
-	pods       []string
-	label      string
-	dataDir    string
-	outName    string
-	bucketName string
-	verbose    int
-	configPath string
-	namespace  string
-	keepLocal  bool
-	chunkSize  int64
-	containers string
+	pods        []string
+	label       string
+	dataDir     string
+	outName     string
+	bucketName  string
+	verbose     int
+	configPath  string
+	namespace   string
+	keepLocal   bool
+	chunkSize   int64
+	containers  string
+	clusterName string
 )
 
 func init() {
@@ -57,6 +56,7 @@ func init() {
 	backupCmd.Flags().BoolVar(&keepLocal, "keep-local", true, "保留本地备份文件")
 	backupCmd.Flags().Int64Var(&chunkSize, "chunksize", 10*1024*1024, "下载和上传的分片大小（字节）")
 	backupCmd.Flags().StringVar(&containers, "containers", "iotdb-datanode", "要操作的容器，多个容器用逗号分隔")
+	backupCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Kubernetes 集群名称")
 
 	rootCmd.AddCommand(backupCmd)
 }
@@ -87,7 +87,10 @@ var backupCmd = &cobra.Command{
 
 		for _, pod := range podList.Items {
 			go func(pod v1.Pod) {
-				backupPod(clientset, pod)
+				err := backupPod(clientset, pod)
+				if err != nil {
+					log(0, "pod %s 备份失败: %v", pod.Name, err)
+				}
 				doneChan <- true
 			}(pod)
 		}
@@ -103,7 +106,7 @@ var backupCmd = &cobra.Command{
 	},
 }
 
-func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
+func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 	podStartTime := time.Now()
 	log(1, "正在处理 pod: %s", pod.Name)
 
@@ -116,8 +119,8 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 			return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
 		})
 		// 生成备份文件名
-		backupFileName := getBackupFileName(pod.Name, container, outName)
-
+		backupFileName := getBackupFileName(pod.Name, outName)
+		var backupErr error
 		trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
@@ -129,6 +132,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 		trackStepDuration("上传到OSS并删除Pod中的文件", func() error {
 			err := uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
 			if err != nil {
+				backupErr = err
 				return err
 			}
 			return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
@@ -136,20 +140,31 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 
 		podEndTime := time.Now()
 		duration := podEndTime.Sub(podStartTime)
+
+		if backupErr != nil {
+			log(0, "pod %s 的备份失败。耗时: %v, 错误: %v", pod.Name, duration, backupErr)
+
+			// 发送失败通知
+			notifyErr := sendFailureNotification(clusterName, namespace, pod.Name, backupErr)
+			if notifyErr != nil {
+				log(0, "发送失败通知失败: %v", notifyErr)
+			}
+
+			return backupErr
+		}
+
 		log(1, "pod %s 的备份完成。耗时: %v", pod.Name, duration)
 
-		// 发送企业微信通知
-		clusterName, err := getClusterNameFromKubectlConfig()
-		if err != nil {
-			log(0, "获取集群名称失败: %v", err)
-		}
-		err = sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName)
+		// 发送成功通知
+		err := sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName)
 		if err != nil {
 			log(0, "发送企业微信通知失败: %v", err)
 		} else {
 			log(1, "已发送企业微信通知")
 		}
 	}
+
+	return nil
 }
 
 func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
@@ -247,23 +262,6 @@ func getClientSet(kubeconfig string) (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
-}
-
-func getClusterNameFromKubectlConfig() (string, error) {
-	cmd := exec.Command("kubectl", "config", "current-context")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return "", fmt.Errorf("error running kubectl command: %w", err)
-	}
-
-	clusterName := strings.TrimSpace(out.String())
-	if clusterName == "" {
-		return "", errors.New("cluster name is empty")
-	}
-
-	return clusterName, nil
 }
 
 func getPodList(clientset *kubernetes.Clientset, namespace string, pods []string, label string) (*v1.PodList, error) {
@@ -471,11 +469,11 @@ func executePodCommandWithStderr(clientset *kubernetes.Clientset, namespace, pod
 	return stdout.String(), stderr.String(), err
 }
 
-func getBackupFileName(podName, containerName, customName string) string {
+func getBackupFileName(podName, customName string) string {
 	if customName != "" {
-		return fmt.Sprintf("%s_%s_%s_%s.tar.gz", customName, podName, containerName, time.Now().Format("20060102150405"))
+		return fmt.Sprintf("%s_%s_%s.tar.gz", customName, podName, time.Now().Format("20060102150405"))
 	}
-	return fmt.Sprintf("%s_%s_%s.tar.gz", podName, containerName, time.Now().Format("20060102150405"))
+	return fmt.Sprintf("%s_%s.tar.gz", podName, time.Now().Format("20060102150405"))
 }
 
 func uploadToOSS(fileName, bucketName string) error {
@@ -539,7 +537,7 @@ func uploadToOSS(fileName, bucketName string) error {
 		}
 		partSize := end - i
 
-		// 创建一个制读取大小的 Reader
+		// 创一个制读取大小的 Reader
 		partReader := io.LimitReader(file, partSize)
 
 		part, err := bucket.UploadPart(imur, partReader, partSize, int(i/partSize)+1)
@@ -614,11 +612,45 @@ func sendWeChatNotification(clusterName, namespace, podName, bucketName string, 
 	ossURL := constructOSSURL(credentials["ENDPOINT"], bucketName, backupFileName)
 
 	content := fmt.Sprintf(`备份完成通知
-> **集群**：%s
-> **命名空间**：%s
-> **Pod**：%s
-> **OSS 下载地址**：%s
+> **集群名称**：   %s
+> **命名空间**：   %s
+> **Pod Name**：  %s
+> **OSS下载地址**：%s
 > **耗时**：%.2f 秒`, clusterName, namespace, podName, ossURL, duration.Seconds())
+
+	payload := map[string]interface{}{
+		"msgtype": "markdown",
+		"markdown": map[string]string{
+			"content": content,
+		},
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("JSON 编码失败: %v", err)
+	}
+
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return fmt.Errorf("发送通知失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("通知发送失败，状态码: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func sendFailureNotification(clusterName, namespace, podName string, err error) error {
+	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=77d13fe6-0047-48bc-803d-904b24590892"
+
+	content := fmt.Sprintf(`备份失败通知
+> **集群名称**：%s
+> **命名空间**：%s
+> **Pod Name**：%s
+> **错误信息**：%v`, clusterName, namespace, podName, err)
 
 	payload := map[string]interface{}{
 		"msgtype": "markdown",
