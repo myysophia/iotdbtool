@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strconv"
 
@@ -42,6 +43,7 @@ var (
 	chunkSize   int64
 	containers  string
 	clusterName string
+	uploadOSS   bool
 )
 
 func init() {
@@ -53,10 +55,11 @@ func init() {
 	backupCmd.Flags().IntVarP(&verbose, "verbose", "v", 0, "Verbose level (0: silent, 1: basic, 2: detailed)")
 	backupCmd.Flags().StringVar(&configPath, "config", "/root/.kube/config", "Path to the kubeconfig file")
 	backupCmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
-	backupCmd.Flags().BoolVar(&keepLocal, "keep-local", true, "保留本地备份文件")
+	backupCmd.Flags().BoolVar(&keepLocal, "keep-local", false, "是否将备份文件保存到本地")
 	backupCmd.Flags().Int64Var(&chunkSize, "chunksize", 10*1024*1024, "下载和上传的分片大小（字节）")
 	backupCmd.Flags().StringVar(&containers, "containers", "iotdb-datanode", "要操作的容器，多个容器用逗号分隔")
 	backupCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Kubernetes 集群名称")
+	backupCmd.Flags().BoolVar(&uploadOSS, "uploadoss", true, "是否上传备份文件到 OSS")
 
 	rootCmd.AddCommand(backupCmd)
 }
@@ -115,12 +118,15 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		container = strings.TrimSpace(container)
 		log(1, "正在处理容器: %s", container)
 
-		trackStepDuration("ossutil64 check", func() error {
-			return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
-		})
+		if uploadOSS {
+			trackStepDuration("ossutil64 check", func() error {
+				return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
+			})
+		}
 		// 生成备份文件名
 		backupFileName := getBackupFileName(pod.Name, outName)
 		var backupErr error
+
 		trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
@@ -129,14 +135,29 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
 		})
 
-		trackStepDuration("上传到OSS并删除Pod中的文件", func() error {
-			err := uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
-			if err != nil {
-				backupErr = err
-				return err
+		if keepLocal {
+			trackStepDuration("复制备份文件到本地", func() error {
+				return copyFileFromPod(clientset, namespace, pod.Name, container, backupFileName, configPath)
+			})
+		}
+
+		if uploadOSS {
+			if keepLocal {
+				trackStepDuration("从本地上传到OSS", func() error {
+					return uploadToOSS(backupFileName, bucketName)
+				})
+			} else {
+				trackStepDuration("从Pod上传到OSS", func() error {
+					return uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
+				})
 			}
-			return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
-		})
+		}
+
+		if !keepLocal {
+			trackStepDuration("删除Pod中的文件", func() error {
+				return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
+			})
+		}
 
 		podEndTime := time.Now()
 		duration := podEndTime.Sub(podStartTime)
@@ -167,30 +188,20 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 	return nil
 }
 
-func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
-	// 检查 ossutil64 是否已存在
-	checkCmd := "if [ -f ./ossutil64 ] && [ -x ./ossutil64 ]; then echo 'exists'; else echo 'not found'; fi"
-	output, err := executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", checkCmd}, configPath)
+func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, containerName, fileName, configPath string) error {
+	cmd := []string{"cat", fileName}
+
+	output, err := executePodCommand(clientset, namespace, podName, containerName, cmd, configPath)
 	if err != nil {
-		return fmt.Errorf("检查 ossutil64 是否存在失败: %v", err)
+		return fmt.Errorf("从 pod 读取文件失败: %v", err)
 	}
 
-	if strings.TrimSpace(output) == "exists" {
-		return nil
-	}
-
-	// 如果不存在，下载并安装 ossutil64
-	log(2, "install ossutil64 in pod %s", podName)
-	downloadCmd := `
-		curl -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64 && \
-		chmod 755 ossutil64
-	`
-	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", downloadCmd}, configPath)
+	err = ioutil.WriteFile(fileName, []byte(output), 0644)
 	if err != nil {
-		return fmt.Errorf("下载并安装 ossutil64 失败: %v", err)
+		return fmt.Errorf("写入本地文件失败: %v", err)
 	}
 
-	log(2, " pod %s install ossutil64 successful", podName)
+	log(1, "文件 %s 已从 pod %s 复制到本地", fileName, podName)
 	return nil
 }
 
@@ -372,6 +383,33 @@ func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, 
 	}
 
 	log(2, "压缩文件 %s 成功", outputFileName)
+	return nil
+}
+
+func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName, containerName, configPath string) error {
+	// 检查 ossutil64 是否已存在
+	checkCmd := "if [ -f ./ossutil64 ] && [ -x ./ossutil64 ]; then echo 'exists'; else echo 'not found'; fi"
+	output, err := executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", checkCmd}, configPath)
+	if err != nil {
+		return fmt.Errorf("检查 ossutil64 是否存在失败: %v", err)
+	}
+
+	if strings.TrimSpace(output) == "exists" {
+		return nil
+	}
+
+	// 如果不存在，下载并安装 ossutil64
+	log(2, "install ossutil64 in pod %s", podName)
+	downloadCmd := `
+		curl -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64 && \
+		chmod 755 ossutil64
+	`
+	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", downloadCmd}, configPath)
+	if err != nil {
+		return fmt.Errorf("下载并安装 ossutil64 失败: %v", err)
+	}
+
+	log(2, " pod %s install ossutil64 successful", podName)
 	return nil
 }
 

@@ -7,9 +7,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "iotdbbackup",
-	Short: "A tool for backing up IoTDB data for nova-ems",
-	Long:  `iotdbbackup is a CLI tool to backup and restore IoTDB data in Kubernetes.`,
+	Use:   "iotdbbackuprestore",
+	Short: "A tool for back up and restore IoTDB data for nova-ems",
+	Long:  `iotdbbackuprestore is a CLI tool to backup and restore IoTDB data in Kubernetes.`,
 }
 
 func Execute() {
@@ -32,4 +32,6 @@ func init() {
 	rootCmd.PersistentFlags().StringP("keep-local", "k", "true", "keep file to local")
 	rootCmd.PersistentFlags().StringP("chunksize", "s", "10485760", "default chunksize is 10MB")
 	rootCmd.PersistentFlags().StringP("containers", "t", "iotdb-datanode", "default container")
+	rootCmd.PersistentFlags().StringP("cluster-name", "m", "", "k8s clusterName")
+	rootCmd.PersistentFlags().StringP("uploadoss", "l", "yes", "uploadoss flag，default is true")
 }
