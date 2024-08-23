@@ -4,6 +4,7 @@ import (
 	"fmt"
 	_ "path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
@@ -34,7 +35,7 @@ func init() {
 
 var restoreCmd = &cobra.Command{
 	Use:   "restore",
-	Short: "从 OSS 恢复 IoTDB 数据",
+	Short: "restore iotdb data from OSS ",
 	Long:  `从 OSS 下载备份文件并恢复到指定的 Kubernetes pods 中。`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if restoreFile == "" {
@@ -55,14 +56,22 @@ var restoreCmd = &cobra.Command{
 		}
 
 		for _, pod := range podList.Items {
-			err := restorePod(clientset, pod, restoreFile)
-			if err != nil {
-				fmt.Printf("恢复 pod %s 失败: %v\n", pod.Name, err)
-			} else {
-				fmt.Printf("成功恢复 pod %s\n", pod.Name)
-			}
+			trackStepDuration("restore by load tsfile", func() error {
+				return restorePod(clientset, pod, restoreFile)
+			})
 		}
 	},
+}
+
+func trackStepDuration(stepName string, stepFunc func() error) {
+	startTime := time.Now()
+	err := stepFunc()
+	duration := time.Since(startTime)
+	if err != nil {
+		log(0, "%s failed: %v", stepName, err)
+	} else {
+		log(1, "%s successful。durtions: %v", stepName, duration)
+	}
 }
 
 func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string) error {
@@ -72,18 +81,18 @@ func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string) er
 		fmt.Printf("正在处理 pod %s 的容器 %s\n", pod.Name, containerName)
 
 		// 下载文件从 OSS
-		if err := downloadFromOSS(clientset, pod.Name, containerName, fileName); err != nil {
-			return fmt.Errorf("从 OSS 下载文件失败: %v", err)
-		}
+		trackStepDuration("download fron oss", func() error {
+			return downloadFromOSS(clientset, pod.Name, containerName, fileName)
+		})
 
 		// 解压文件并执行恢复命令
 		restoreCmd := fmt.Sprintf(`
 			tar -xf %s && 
 			find iotdb/data/datanode/ -name "*.tsfile" | 
-			xargs -I GG echo "/iotdb/sbin/start-cli.sh -h iotdb-datanode-0 -e \"load 'GG' verify=false \";" | 
+			xargs -I GG echo "/iotdb/sbin/start-cli.sh -h %s -e \"load 'GG' verify=false \";" | 
 			bash
-		`, fileName)
-
+		`, fileName, pod.Name)
+		log(2, "执行恢复命令: %s", restoreCmd)
 		_, err := executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", restoreCmd}, configPath)
 		if err != nil {
 			return fmt.Errorf("执行恢复命令失败: %v", err)
@@ -103,6 +112,7 @@ func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string) er
 func downloadFromOSS(clientset *kubernetes.Clientset, podName, containerName, fileName string) error {
 	credentials, err := loadCredentials(".credentials")
 	if err != nil {
+		log(2, "加载 OSS 凭证失败: %v", err)
 		return err
 	}
 
