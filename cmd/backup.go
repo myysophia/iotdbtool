@@ -119,7 +119,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		log(1, "正在处理容器: %s", container)
 
 		if !uploadOSS { // 如果不需要上传到 OSS，则跳过 ossutil 工具
-			trackStepDuration("ossutil64 check", func() error {
+			trackStepDuration("env check", func() error {
 				return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
 			})
 		}
@@ -399,7 +399,7 @@ func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName,
 	}
 
 	// 如果不存在，下载并安装 ossutil64
-	log(2, "install ossutil64 in pod %s", podName)
+	log(1, "install ossutil64 in pod %s", podName)
 	downloadCmd := `
 		curl -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64 && \
 		chmod 755 ossutil64
@@ -409,7 +409,7 @@ func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName,
 		return fmt.Errorf("下载并安装 ossutil64 失败: %v", err)
 	}
 
-	log(2, " pod %s install ossutil64 successful", podName)
+	log(1, " pod %s install ossutil64 successful", podName)
 	return nil
 }
 

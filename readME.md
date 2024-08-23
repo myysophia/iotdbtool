@@ -30,7 +30,7 @@ set GOARCH=amd64
 go build -o iotdbbackup
 
 
-# linux 上build
+# linux 上build 语法
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 ```
 
@@ -41,12 +41,38 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 ## 使用指南
 ### 基本用法
 ```bash
-./iotdbbackup backup [flags]
+iotdbbackuprestore is a CLI tool to backup and restore IoTDB data in Kubernetes.
+
+Usage:
+  iotdbbackuprestore [command]
+
+Available Commands:
+  backup      Backup IoTDB data
+  completion  Generate the autocompletion script for the specified shell
+  help        Help about any command
+  restore     restore iotdb data from OSS
+
+Flags:
+  -b, --bucketname string     oss bucket name (default "iotdb-backup")
+  -s, --chunksize string      default chunksize is 10MB (default "10485760")
+  -m, --cluster-name string   k8s clusterName
+  -c, --config string         Path to the kubeconfig file (default "/root/.kube/config")
+  -t, --containers string     default container (default "iotdb-datanode")
+  -d, --datadir string        iotdb data dir (default "/iotdb/data")
+  -h, --help                  help for iotdbbackuprestore
+  -k, --keep-local string     keep file to local (default "true")
+  -l, --label string          backup by pod label (default "statefulset.kubernetes.io/pod-name=iotdb-datanode-0")
+  -n, --namespace string      Kubernetes namespace (default "iotdb")
+  -o, --outname string        backup file name (default "iotdb-datanode-back")
+  -p, --pods string           backup by pod name (default "iotdb-datanode-0")
+      --uploadoss string      uploadoss flag，default is true (default "yes")
+  -v, --verbose string        backup log level (default "0")
+
+Use "iotdbbackuprestore [command] --help" for more information about a command.
+
 ```
 
-
-
-## 命令行参数
+### 命令行参数
 
 命令行选项以及默认值
 
@@ -63,42 +89,43 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 | `--verbose`        | 日志输出详细级别（0、1、2) | `1`                    |
 | `--keepLocal` | keepLocal 设置为 false（不保留本地文件） | `false` |
 | `--chunkSize` | 指定分片下载、上传的大小 | `10MB` |
+| `--uploadoss` |  |  |
 
 
 
 ### 示例
 
-备份指定的 Pod 并上传到 OSS
-复制代码
-./iotdbbackup backup --config /path/to/kubeconfig --namespace default --pods=iotdb-datanode-0 --bucketname my-bucket --datadir /iotdb/data/ --verbose 2
-使用标签选择器备份 Pod 并上传到 OSS
-bash
-复制代码
-./iotdbbackup backup --config /path/to/kubeconfig --namespace default --label app=iotdb --bucketname my-bucket --verbose 1
-通过 Kubernetes 配置文件备份并上传到 OSS
+#### 备份uat iotdb
 
-./iotdbbackup backup --config /home/user/.kube/config --namespace my-namespace --pods=iotdb-datanode-0,iotdb-datanode-1 --bucketname my-bucket --outname backup.tar.gz --verbose 2
+```bash
 
-#### 配置文件
+```
 
-##### 阿里云 OSS 配置
 
-将阿里云 OSS 的访问凭证保存到 .credentials 文件中，格式如下：
+
+#### 备份 cn iotdb
+
+#### 备份其他pod 的指定文件
+
+#### 恢复cn 的备份
+
+
+
+### 配置
+
+默认将备份文件上传到oss，可以通过uploadoss关闭
+
+OSS 的访问凭证保存到 .credentials 文件中，请妥善保存
+
+```b
 AK=your-access-key
 SK=your-secret-key
 ENDPOINT=your-oss-endpoint
-将该文件放置在项目根目录下，或者你可以修改 loadCredentials 函数以读取其他位置的凭证文件。
+```
 
-日志输出
+### 日志输出
+
 日志详细级别可以通过 --verbose 标志来设置。
 日志级别 0 将不输出任何日志，适合静默执行。
 日志级别 1 将输出基本操作日志。
 日志级别 2 将输出详细日志，适合调试和问题排查。
-贡献
-我们欢迎社区的贡献！如果你想为 iotdbbackup 做出贡献，请遵循以下步骤：
-
-Fork 此仓库。
-创建你的功能分支 (git checkout -b feature/YourFeature)。
-提交你的更改 (git commit -m 'Add YourFeature')。
-推送到分支 (git push origin feature/YourFeature)。
-创建一个新的 Pull Request。
