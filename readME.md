@@ -98,18 +98,39 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 #### 备份uat iotdb
 
 ```bash
-
+./iotdbbackuprestorev2 backup --config /root/.kube/config  --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --datadir /iotdb/data/ --verbose 1 --outname emsuat
 ```
 
 
 
 #### 备份 cn iotdb
 
+```bash
+./iotdbbackuprestorev2 backup --config /root/.kube/config  --namespace ems-plus-mapai --pods=iotdb-datanode-0,iotdb-datanode-1,iotdb-datanode-2 --bucketname iotdb-backup --datadir /iotdb/data/ --cluster-name emscn --uploadoss true
+```
+
+
+
 #### 备份其他pod 的指定文件
+
+备份指定pod、container中指定目录到本地或oss
+
+```bash
+iotdbbackuprestorev2 backup --namespace ems-eu --pods vnnox-middle-configcenter-7459fcfb5b-6x8gz --datadir /tmp --containers vnnox-middle-configcenter --uploadoss true --bucketname iotdb-backup --keep-local false  --verbose 2
+```
 
 #### 恢复cn 的备份
 
+```bash
+iotdbbackuprestorev2 restore --config .config --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 2 --file emseu-workstaaa_iotdb-datanode-0_iotdb-datanode_20240822094200.tar.gz
+```
 
+#### 数据比对
+
+```bash
+show devices 比较设备数量
+count timeseries 比较时间序列总数
+```
 
 ### 配置
 
