@@ -118,7 +118,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		container = strings.TrimSpace(container)
 		log(1, "正在处理容器: %s", container)
 
-		if !uploadOSS {
+		if !uploadOSS { // 如果不需要上传到 OSS，则跳过 ossutil 工具
 			trackStepDuration("ossutil64 check", func() error {
 				return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
 			})
@@ -142,18 +142,18 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		}
 
 		if uploadOSS {
-			if keepLocal {
+			if keepLocal { // 如果需要保留备份文件在本地，则先从本地上传到 OSS
 				trackStepDuration("从本地上传到OSS", func() error {
 					return uploadToOSS(backupFileName, bucketName)
 				})
-			} else {
+			} else { // 如果不需要保留备份文件在本地，则直接从 Pod 上传到 OSS
 				trackStepDuration("从Pod上传到OSS", func() error {
 					return uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
 				})
 			}
 		}
 
-		if !keepLocal {
+		if !keepLocal { // 如果不需要保留备份文件在本地，则删除备份文件
 			trackStepDuration("删除Pod中的文件", func() error {
 				return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
 			})
