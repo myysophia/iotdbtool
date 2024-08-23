@@ -118,7 +118,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		container = strings.TrimSpace(container)
 		log(1, "正在处理容器: %s", container)
 
-		if uploadOSS {
+		if !uploadOSS {
 			trackStepDuration("ossutil64 check", func() error {
 				return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
 			})
