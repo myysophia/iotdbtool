@@ -120,7 +120,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		})
 		// 生成备份文件名
 		backupFileName := getBackupFileName(pod.Name, outName)
-		var backupErr error
+
 		trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
@@ -143,13 +143,13 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 
 		if backupErr != nil {
 			log(0, "pod %s 的备份失败。耗时: %v, 错误: %v", pod.Name, duration, backupErr)
-
+			
 			// 发送失败通知
 			notifyErr := sendFailureNotification(clusterName, namespace, pod.Name, backupErr)
 			if notifyErr != nil {
 				log(0, "发送失败通知失败: %v", notifyErr)
 			}
-
+			
 			return backupErr
 		}
 
@@ -612,10 +612,10 @@ func sendWeChatNotification(clusterName, namespace, podName, bucketName string, 
 	ossURL := constructOSSURL(credentials["ENDPOINT"], bucketName, backupFileName)
 
 	content := fmt.Sprintf(`备份完成通知
-> **集群名称**：   %s
-> **命名空间**：   %s
-> **Pod Name**：  %s
-> **OSS下载地址**：%s
+> **集群**：%s
+> **命名空间**：%s
+> **Pod**：%s
+> **OSS 下载地址**：%s
 > **耗时**：%.2f 秒`, clusterName, namespace, podName, ossURL, duration.Seconds())
 
 	payload := map[string]interface{}{
@@ -647,9 +647,9 @@ func sendFailureNotification(clusterName, namespace, podName string, err error) 
 	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=77d13fe6-0047-48bc-803d-904b24590892"
 
 	content := fmt.Sprintf(`备份失败通知
-> **集群名称**：%s
+> **集群**：%s
 > **命名空间**：%s
-> **Pod Name**：%s
+> **Pod**：%s
 > **错误信息**：%v`, clusterName, namespace, podName, err)
 
 	payload := map[string]interface{}{
