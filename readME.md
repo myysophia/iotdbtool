@@ -1,12 +1,24 @@
-# IoTDBBackup
+# iotdbbackuprestore
 ## 项目简介
-iotdbbackup 是一个使用 Go 语言编写的命令行工具，基于 Kubernetes 环境，提供了 IoTDB 数据的备份功能。它可以从 Kubernetes 集群中的 IoTDB Pod 中提取数据，并将其上传到阿里云 OSS 存储桶中。
+iotdbbackuprestore是一个使用 Go 语言编写的命令行工具，基于 Kubernetes 环境，提供了 IoTDB 数据的备份功能。它可以从 Kubernetes 集群中的 IoTDB Pod 中提取数据，并将其上传到阿里云 OSS 存储桶中。
+
+iotdbbackuprestore支持iotDB单机、集群，备份与恢复，备份文件存储在oss上，主要实现了k8s部署的有状态服务的备份恢复
+
+## 痛点
+
+- 开源版本iotdb 没有现成的冷备方案，exporttsfile基本不可用，引用几十个jar导出全库需要巨量内存。
+- 业务核心组件，iotdb down = 业务不可用down。 每天2次冷备，以备不时之需
+- 多个iotdb 节点，备份恢复没有一个all in one 简单的工具
 
 ## 功能特性
-从 Kubernetes 集群中的 IoTDB Pod 中提取数据。
-支持Pod 中的指定目录。
-将备份文件上传到阿里云 OSS。
-支持多种日志输出级别，便于调试和监控。
+
+- 支持任意Pod任意容器中的指定目录。
+- 将备份文件上传到阿里云 OSS，默认保存7天
+- 支持多种日志输出级别，便于调试和监控。
+- 支持iotdb单机、集群的备份和恢复
+- goroutine 支持并发备份
+- oss sdk 上传oss、分片上传、进度条
+- 不依赖kubectl命令，使用client-go 直接调用api操作pod，安全高效
 
 ## 系统要求
 Go 1.16 或更高版本
@@ -17,9 +29,9 @@ Kubernetes 集群
 首先，确保你已经安装了 Go 语言开发环境。然后，克隆项目并编译二进制文件：
 
 ```bash
-git clone iotdbbackup.git
-cd iotdbbackup
-go build -o iotdbbackup
+git clone http://git.novatools.vip/Nova006393/iotdbtool.git
+cd iotdbtool
+go build -o iotdbbackuprestore
 ```
 
 ### 交叉编译（在 Windows 上编译 Linux 二进制文件）
@@ -36,7 +48,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 
  设置为 0，可以避免对系统上 C 库的依赖，从而生成更加通用的二进制文件。
 
-编译完成后，你将获得一个 iotdbbackup 二进制文件。
+编译完成后，你将获得一个 iotdbbackup 二进制文件。可以到处运行
 
 ## 使用指南
 ### 基本用法
