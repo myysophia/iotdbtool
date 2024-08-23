@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 
 	//"strconv"
@@ -25,6 +27,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"net/http"
+	"net/url"
+	_ "path/filepath"
 )
 
 var (
@@ -106,44 +110,45 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) {
 	containerList := strings.Split(containers, ",")
 	for _, container := range containerList {
 		container = strings.TrimSpace(container)
-		log(2, "正在处理容器: %s", container)
+		log(1, "正在处理容器: %s", container)
 
 		trackStepDuration("ossutil64 check", func() error {
 			return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
 		})
+		// 生成备份文件名
+		backupFileName := getBackupFileName(pod.Name, container, outName)
 
-		trackStepDuration("execute hook", func() error {
+		trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
 
-		backupFileName := getBackupFileName(pod.Name, container, outName)
-		trackStepDuration("compress data", func() error {
+		trackStepDuration("压缩数据", func() error {
 			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
 		})
 
-		trackStepDuration("upload to oss and delete local file", func() error {
+		trackStepDuration("上传到OSS并删除Pod中的文件", func() error {
 			err := uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
 			if err != nil {
-				log(2, "上传到OSS并删除Pod中的文件失败: %v", err)
 				return err
 			}
 			return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
 		})
-	}
 
-	podEndTime := time.Now()
-	duration := podEndTime.Sub(podStartTime)
-	log(1, "pod %s 的备份完成。耗时: %v", pod.Name, duration)
-	clsname, err := getClusterName(clientset)
-	if err != nil {
-		log(0, "获取集群名称失败: %v", err)
-	}
-	// 发送企业微信通知
-	err = sendWeChatNotification(clsname, namespace, pod.Name, bucketName, duration)
-	if err != nil {
-		log(0, "发送企业微信通知失败: %v", err)
-	} else {
-		log(1, "已发送企业微信通知")
+		podEndTime := time.Now()
+		duration := podEndTime.Sub(podStartTime)
+		log(1, "pod %s 的备份完成。耗时: %v", pod.Name, duration)
+
+		// 发送企业微信通知
+		clusterName, err := getClusterNameFromKubectlConfig()
+		if err != nil {
+			log(0, "获取集群名称失败: %v", err)
+		}
+		err = sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName)
+		if err != nil {
+			log(0, "发送企业微信通知失败: %v", err)
+		} else {
+			log(1, "已发送企业微信通知")
+		}
 	}
 }
 
@@ -156,12 +161,11 @@ func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName,
 	}
 
 	if strings.TrimSpace(output) == "exists" {
-		log(2, "ossutil64 已存在于 pod %s 中", podName)
 		return nil
 	}
 
 	// 如果不存在，下载并安装 ossutil64
-	log(2, "正在下载并安装 ossutil64 到 pod %s", podName)
+	log(2, "install ossutil64 in pod %s", podName)
 	downloadCmd := `
 		curl -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64 && \
 		chmod 755 ossutil64
@@ -171,7 +175,7 @@ func ensureOssutilAvailable(clientset *kubernetes.Clientset, namespace, podName,
 		return fmt.Errorf("下载并安装 ossutil64 失败: %v", err)
 	}
 
-	log(2, "已在 pod %s 中下载并安装 ossutil64", podName)
+	log(2, " pod %s install ossutil64 successful", podName)
 	return nil
 }
 
@@ -245,12 +249,21 @@ func getClientSet(kubeconfig string) (*kubernetes.Clientset, error) {
 	return kubernetes.NewForConfig(config)
 }
 
-func getClusterName(clientset *kubernetes.Clientset) (string, error) {
-	cluster, err := clientset.CoreV1().Namespaces().Get(context.TODO(), "kube-system", metav1.GetOptions{})
+func getClusterNameFromKubectlConfig() (string, error) {
+	cmd := exec.Command("kubectl", "config", "current-context")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error running kubectl command: %w", err)
 	}
-	return cluster.Name, nil
+
+	clusterName := strings.TrimSpace(out.String())
+	if clusterName == "" {
+		return "", errors.New("cluster name is empty")
+	}
+
+	return clusterName, nil
 }
 
 func getPodList(clientset *kubernetes.Clientset, namespace string, pods []string, label string) (*v1.PodList, error) {
@@ -589,15 +602,23 @@ func log(level int, format string, args ...interface{}) {
 	}
 }
 
-func sendWeChatNotification(clusterName, namespace, podName, bucketName string, duration time.Duration) error {
+func sendWeChatNotification(clusterName, namespace, podName, bucketName string, duration time.Duration, backupFileName string) error {
 	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=77d13fe6-0047-48bc-803d-904b24590892"
+
+	credentials, err := loadCredentials(".credentials")
+	if err != nil {
+		return fmt.Errorf("加载凭证失败: %v", err)
+	}
+
+	// 构造 OSS 下载 URL
+	ossURL := constructOSSURL(credentials["ENDPOINT"], bucketName, backupFileName)
 
 	content := fmt.Sprintf(`备份完成通知
 > **集群**：%s
 > **命名空间**：%s
 > **Pod**：%s
-> **Bucket**：%s
-> **耗时**：%.2f 秒`, clusterName, namespace, podName, bucketName, duration.Seconds())
+> **OSS 下载地址**：%s
+> **耗时**：%.2f 秒`, clusterName, namespace, podName, ossURL, duration.Seconds())
 
 	payload := map[string]interface{}{
 		"msgtype": "markdown",
@@ -622,4 +643,13 @@ func sendWeChatNotification(clusterName, namespace, podName, bucketName string, 
 	}
 
 	return nil
+}
+
+func constructOSSURL(endpoint, bucketName, fileName string) string {
+	// 移除 endpoint 中的 "http://" 或 "https://"
+	endpoint = strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")
+
+	// 构造 OSS URL
+	ossURL := fmt.Sprintf("https://%s.%s/%s", bucketName, endpoint, url.PathEscape(fileName))
+	return ossURL
 }
