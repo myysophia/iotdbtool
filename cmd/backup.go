@@ -120,7 +120,7 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		})
 		// 生成备份文件名
 		backupFileName := getBackupFileName(pod.Name, outName)
-
+		var backupErr error
 		trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
 		})
@@ -143,13 +143,13 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 
 		if backupErr != nil {
 			log(0, "pod %s 的备份失败。耗时: %v, 错误: %v", pod.Name, duration, backupErr)
-			
+
 			// 发送失败通知
 			notifyErr := sendFailureNotification(clusterName, namespace, pod.Name, backupErr)
 			if notifyErr != nil {
 				log(0, "发送失败通知失败: %v", notifyErr)
 			}
-			
+
 			return backupErr
 		}
 
