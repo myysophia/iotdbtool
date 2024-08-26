@@ -30,7 +30,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("bucketname", "b", "iotdb-backup", "oss bucket name")
 	rootCmd.PersistentFlags().StringP("verbose", "v", "0", "backup log level")
 	rootCmd.PersistentFlags().StringP("keep-local", "k", "true", "keep file to local")
-	rootCmd.PersistentFlags().StringP("chunksize", "s", "10485760", "oss upload with multi parts,default chunksize is 10MB")
+	rootCmd.PersistentFlags().StringP("chunksize", "s", "10485760", "default chunksize is 10MB")
 	rootCmd.PersistentFlags().StringP("containers", "t", "iotdb-datanode", "default container")
 	rootCmd.PersistentFlags().StringP("cluster-name", "m", "", "k8s clusterName")
 	rootCmd.PersistentFlags().StringP("uploadoss", "", "yes", "uploadoss flag，default is true")

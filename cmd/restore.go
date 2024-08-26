@@ -57,7 +57,7 @@ var restoreCmd = &cobra.Command{
 
 		for _, pod := range podList.Items {
 			trackStepDuration("restore by load tsfile", func() error {
-				return restorePod(clientset, pod, restoreFile)
+				return restorePod(clientset, pod, restoreFile, pods)
 			})
 		}
 	},
@@ -74,7 +74,7 @@ func trackStepDuration(stepName string, stepFunc func() error) {
 	}
 }
 
-func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string) error {
+func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, pods []string) error {
 	containerList := strings.Split(containers, ",")
 	for _, containerName := range containerList {
 		containerName = strings.TrimSpace(containerName)

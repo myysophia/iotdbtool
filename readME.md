@@ -162,3 +162,8 @@ ENDPOINT=your-oss-endpoint
 日志级别 0 将不输出任何日志，适合静默执行。
 日志级别 1 将输出基本操作日志。
 日志级别 2 将输出详细日志，适合调试和问题排查。
+### 其他
+- 统计代码行数
+
+`find . -name "*.go"  | xargs -I GG echo "wc -l GG" | bash | awk '{sum+=$1} END {print sum}'
+925`
