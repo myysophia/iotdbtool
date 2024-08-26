@@ -29,9 +29,9 @@ Kubernetes 集群
 首先，确保你已经安装了 Go 语言开发环境。然后，克隆项目并编译二进制文件：
 
 ```bash
-git clone http://git.novatools.vip/Nova006393/iotdbtool.git
+git clone https://github.com/myysophia/iotdbtool.git
 cd iotdbtool
-go build -o iotdbbackuprestore
+go build -o iotdbtool
 ```
 
 ### 交叉编译（在 Windows 上编译 Linux 二进制文件）
@@ -53,10 +53,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 ## 使用指南
 ### 基本用法
 ```bash
-iotdbbackuprestore is a CLI tool to backup and restore IoTDB data in Kubernetes.
+iotdbtool is a CLI tool to backup and restore IoTDB data in Kubernetes.
 
 Usage:
-  iotdbbackuprestore [command]
+  iotdbtool [command]
 
 Available Commands:
   backup      Backup IoTDB data
@@ -71,7 +71,7 @@ Flags:
   -c, --config string         Path to the kubeconfig file (default "/root/.kube/config")
   -t, --containers string     default container (default "iotdb-datanode")
   -d, --datadir string        iotdb data dir (default "/iotdb/data")
-  -h, --help                  help for iotdbbackuprestore
+  -h, --help                  help for iotdbtool
   -k, --keep-local string     keep file to local (default "true")
   -l, --label string          backup by pod label (default "statefulset.kubernetes.io/pod-name=iotdb-datanode-0")
   -n, --namespace string      Kubernetes namespace (default "iotdb")
@@ -80,7 +80,7 @@ Flags:
       --uploadoss string      uploadoss flag，default is true (default "yes")
   -v, --verbose string        backup log level (default "0")
 
-Use "iotdbbackuprestore [command] --help" for more information about a command.
+Use "iotdbtool [command] --help" for more information about a command.
 
 ```
 
@@ -110,7 +110,7 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 #### 备份uat iotdb
 
 ```bash
-./iotdbbackuprestorev2 backup --config /root/.kube/config  --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --datadir /iotdb/data/ --verbose 1 --outname emsuat
+./iotdbtoolv2 backup --config /root/.kube/config  --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --datadir /iotdb/data/ --verbose 1 --outname emsuat
 ```
 
 
@@ -118,7 +118,7 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 #### 备份 cn iotdb
 
 ```bash
-./iotdbbackuprestorev2 backup --config /root/.kube/config  --namespace ems-plus-mapai --pods=iotdb-datanode-0,iotdb-datanode-1,iotdb-datanode-2 --bucketname iotdb-backup --datadir /iotdb/data/ --cluster-name emscn --uploadoss true
+./iotdbtoolv2 backup --config /root/.kube/config  --namespace ems-plus-mapai --pods=iotdb-datanode-0,iotdb-datanode-1,iotdb-datanode-2 --bucketname iotdb-backup --datadir /iotdb/data/ --cluster-name emscn --uploadoss true
 ```
 
 
@@ -128,13 +128,13 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 备份指定pod、container中指定目录到本地或oss
 
 ```bash
-iotdbbackuprestorev2 backup --namespace ems-eu --pods vnnox-middle-configcenter-7459fcfb5b-6x8gz --datadir /tmp --containers vnnox-middle-configcenter --uploadoss true --bucketname iotdb-backup --keep-local false  --verbose 2
+iotdbtoolv2 backup --namespace ems-eu --pods vnnox-middle-configcenter-7459fcfb5b-6x8gz --datadir /tmp --containers vnnox-middle-configcenter --uploadoss true --bucketname iotdb-backup --keep-local false  --verbose 2
 ```
 
 #### 恢复cn 的备份
 
 ```bash
-iotdbbackuprestorev2 restore --config .config --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 2 --file emseu-workstaaa_iotdb-datanode-0_iotdb-datanode_20240822094200.tar.gz
+iotdbtoolv2 restore --config .config --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 2 --file emseu-workstaaa_iotdb-datanode-0_iotdb-datanode_20240822094200.tar.gz
 ```
 
 #### 数据比对

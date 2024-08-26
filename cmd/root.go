@@ -7,9 +7,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "iotdbbackuprestore",
+	Use:   "iotdbtool",
 	Short: "A tool for back up and restore IoTDB data for nova-ems",
-	Long:  `iotdbbackuprestore is a CLI tool to backup and restore IoTDB data in Kubernetes.`,
+	Long:  `iotdbtool is a CLI tool to backup and restore IoTDB data in Kubernetes.`,
 }
 
 func Execute() {
