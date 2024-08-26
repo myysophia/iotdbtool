@@ -1,8 +1,8 @@
-# iotdbbackuprestore
+# iotdbtool
 ## 项目简介
-iotdbbackuprestore是一个使用 Go 语言编写的命令行工具，基于 Kubernetes 环境，提供了 IoTDB 数据的备份功能。它可以从 Kubernetes 集群中的 IoTDB Pod 中提取数据，并将其上传到阿里云 OSS 存储桶中。
+iotdbtool是一个使用 Go 语言编写的命令行工具，基于 Kubernetes 环境，提供了 IoTDB 数据的备份功能。它可以从 Kubernetes 集群中的 IoTDB Pod 中提取数据，并将其上传到阿里云 OSS 存储桶中。
 
-iotdbbackuprestore支持iotDB单机、集群，备份与恢复，备份文件存储在oss上，主要实现了k8s部署的有状态服务的备份恢复
+iotdbtool支持iotDB单机、集群，备份与恢复，备份文件存储在oss上，主要实现了k8s部署的有状态服务的备份恢复
 
 ## 痛点
 
