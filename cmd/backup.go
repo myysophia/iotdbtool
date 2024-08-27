@@ -558,6 +558,7 @@ func uploadToOSS(fileName, bucketName string) error {
 	imur, err := bucket.InitiateMultipartUpload(fileName, options...)
 	if err != nil {
 		return fmt.Errorf("初始化分片上传失败: %v", err)
+		return err
 	}
 
 	// 创建进度条
