@@ -3,3 +3,4 @@
 .config
 .credentials
 *.tar.gz
+gpttest.go
