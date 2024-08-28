@@ -176,12 +176,14 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 
 		log(1, "pod %s 的备份完成。耗时: %v", pod.Name, duration)
 
-		// 发送成功通知
-		err := sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName)
-		if err != nil {
-			log(0, "发送企业微信通知失败: %v", err)
-		} else {
-			log(1, "已发送企业微信通知")
+		// 上传oss才发送成功通知
+		if uploadOSS {
+			err := sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName)
+			if err != nil {
+				log(0, "发送成功通知失败: %v", err)
+			} else {
+				log(1, "已发送成功通知")
+			}
 		}
 	}
 
