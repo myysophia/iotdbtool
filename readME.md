@@ -51,6 +51,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 编译完成后，你将获得一个 iotdbbackup 二进制文件。可以到处运行
 
 ## 使用指南
+### backup
+![backup](https://github.com/user-attachments/assets/e24fce0a-b7b9-422b-a5b2-5b1aa5add0ef)
+
+### restore 
+
 ### 基本用法
 ```bash
 iotdbbackuprestore is a CLI tool to backup and restore IoTDB data in Kubernetes.
