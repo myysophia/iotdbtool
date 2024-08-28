@@ -154,6 +154,9 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		}
 
 		if !keepLocal { // 如果不需要保留备份文件在本地，则删除备份文件
+			trackStepDuration("从本地上传到OSS", func() error {
+				return uploadToOSS(backupFileName, bucketName)
+			})
 			trackStepDuration("删除Pod中的文件", func() error {
 				return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
 			})
