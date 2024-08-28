@@ -72,14 +72,18 @@ var backupCmd = &cobra.Command{
 		startTime := time.Now()
 		log(2, "开始时间: %s", startTime.Format("2006-01-02 15:04:05"))
 
-		clientset, err := getClientSet(configPath)
+		client, err := getClientSet(configPath)
 		if err != nil {
 			log(0, "创建 Kubernetes 客户端失败: %v", err)
-			sendFailureNotification(clusterName, namespace, "", err)
+			err := sendFailureNotification(clusterName, namespace, "", err)
+			if err != nil {
+				log(2, "发送失败通知失败: %v", err)
+				return
+			}
 			os.Exit(1)
 		}
 
-		podList, err := getPodList(clientset, namespace, pods, label)
+		podList, err := getPodList(client, namespace, pods, label)
 		if err != nil {
 			log(0, "列出 pods 失败: %v", err)
 			os.Exit(1)
@@ -91,7 +95,7 @@ var backupCmd = &cobra.Command{
 
 		for _, pod := range podList.Items {
 			go func(pod v1.Pod) {
-				err := backupPod(clientset, pod)
+				err := backupPod(client, pod)
 				if err != nil {
 					log(0, "pod %s 备份失败: %v", pod.Name, err)
 				}
@@ -155,12 +159,12 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		if uploadOSS {
 			var uploadErr error
 			if keepLocal {
-				// 从本地上传到OSS
+				// 备份先落到从本地上传到OSS，使用oss-go-sdk
 				uploadErr = trackStepDuration("从本地上传到OSS", func() error {
 					return uploadToOSS(backupFileName, bucketName)
 				})
 			} else {
-				// 从Pod上传到OSS
+				// 从Pod直接上传到OSS, 使用ossutil
 				uploadErr = trackStepDuration("从Pod上传到OSS", func() error {
 					return uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
 				})
@@ -227,9 +231,13 @@ func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, contai
 }
 
 func uploadToOSSFromPod(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, bucketName, configPath string) error {
-	trackStepDuration("env check", func() error {
+	err := trackStepDuration("env check", func() error {
 		return ensureOssutilAvailable(clientset, namespace, podName, containerName, configPath)
 	})
+	if err != nil {
+		log(2, "env check 失败: %v", err)
+		return err
+	}
 
 	credentials, err := loadCredentials(".credentials")
 	if err != nil {
