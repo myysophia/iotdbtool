@@ -80,6 +80,9 @@ func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, po
 		containerName = strings.TrimSpace(containerName)
 		fmt.Printf("正在处理 pod %s 的容器 %s\n", pod.Name, containerName)
 
+		trackStepDuration("env check", func() error {
+			return ensureOssutilAvailable(clientset, namespace, pod.Name, containerName, configPath)
+		})
 		// 下载文件从 OSS
 		trackStepDuration("download fron oss", func() error {
 			return downloadFromOSS(clientset, pod.Name, containerName, fileName)
@@ -98,8 +101,8 @@ func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, po
 			return fmt.Errorf("执行恢复命令失败: %v", err)
 		}
 
-		// 删除下载的文件
-		deleteCmd := fmt.Sprintf("rm -f %s", fileName)
+		// 删除文件
+		deleteCmd := fmt.Sprintf(" rm -rf ./iotdb")
 		_, err = executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", deleteCmd}, configPath)
 		if err != nil {
 			fmt.Printf("警告：删除下载的文件 %s 失败: %v\n", fileName, err)
