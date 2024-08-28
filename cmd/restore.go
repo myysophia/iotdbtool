@@ -2,15 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	_ "path/filepath"
-	"strings"
-	"time"
-
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
 	_ "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/tools/clientcmd"
+	_ "path/filepath"
+	"strings"
 )
 
 var (
@@ -63,16 +61,16 @@ var restoreCmd = &cobra.Command{
 	},
 }
 
-func trackStepDuration(stepName string, stepFunc func() error) {
-	startTime := time.Now()
-	err := stepFunc()
-	duration := time.Since(startTime)
-	if err != nil {
-		log(0, "%s failed: %v", stepName, err)
-	} else {
-		log(1, "%s successful。durtions: %v", stepName, duration)
-	}
-}
+//func trackStepDuration(stepName string, stepFunc func() error) {
+//	startTime := time.Now()
+//	err := stepFunc()
+//	duration := time.Since(startTime)
+//	if err != nil {
+//		log(0, "%s failed: %v", stepName, err)
+//	} else {
+//		log(1, "%s successful。durtions: %v", stepName, duration)
+//	}
+//}
 
 func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, pods []string) error {
 	containerList := strings.Split(containers, ",")

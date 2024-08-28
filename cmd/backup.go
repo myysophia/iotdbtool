@@ -75,6 +75,7 @@ var backupCmd = &cobra.Command{
 		clientset, err := getClientSet(configPath)
 		if err != nil {
 			log(0, "创建 Kubernetes 客户端失败: %v", err)
+			sendFailureNotification(clusterName, namespace, "", err)
 			os.Exit(1)
 		}
 
@@ -118,76 +119,94 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		container = strings.TrimSpace(container)
 		log(1, "正在处理容器: %s", container)
 
-		if !uploadOSS { // 如果不需要上传到 OSS，则跳过 ossutil 工具
-			trackStepDuration("env check", func() error {
-				return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
-			})
-		}
+		//if !uploadOSS { // 如果不需要上传到 OSS，则跳过 ossutil 工具
+		//	trackStepDuration("env check", func() error {
+		//		return ensureOssutilAvailable(clientset, namespace, pod.Name, container, configPath)
+		//	})
+		//}
 		// 生成备份文件名
 		backupFileName := getBackupFileName(pod.Name, outName)
-		var backupErr error
 
-		trackStepDuration("刷新数据", func() error {
+		//var err error
+
+		// 刷新数据
+		if err := trackStepDuration("刷新数据", func() error {
 			return flushData(clientset, namespace, pod.Name, container, configPath)
-		})
-
-		trackStepDuration("压缩数据", func() error {
-			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
-		})
-
-		if keepLocal {
-			trackStepDuration("复制备份文件到本地", func() error {
-				return copyFileFromPod(clientset, namespace, pod.Name, container, backupFileName, configPath)
-			})
+		}); err != nil {
+			return handleBackupError(err, clusterName, namespace, pod.Name, podStartTime)
 		}
 
-		if uploadOSS {
-			if keepLocal { // 如果需要保留备份文件在本地，则先从本地上传到 OSS
-				trackStepDuration("从本地上传到OSS", func() error {
-					return uploadToOSS(backupFileName, bucketName)
-				})
-			} else { // 如果不需要保留备份文件在本地，则直接从 Pod 上传到 OSS
-				trackStepDuration("从Pod上传到OSS", func() error {
-					return uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
-				})
+		// 压缩数据
+		if err := trackStepDuration("压缩数据", func() error {
+			return compressData(clientset, namespace, pod.Name, dataDir, backupFileName, container, configPath, outName)
+		}); err != nil {
+			return handleBackupError(err, clusterName, namespace, pod.Name, podStartTime)
+		}
+
+		if keepLocal {
+			// 复制备份文件到本地
+			if err := trackStepDuration("复制备份文件到本地", func() error {
+				return copyFileFromPod(clientset, namespace, pod.Name, container, backupFileName, configPath)
+			}); err != nil {
+				return handleBackupError(err, clusterName, namespace, pod.Name, podStartTime)
 			}
 		}
 
-		if !keepLocal { // 如果不需要保留备份文件在本地，则删除备份文件
-			trackStepDuration("删除Pod中的文件", func() error {
+		if uploadOSS {
+			var uploadErr error
+			if keepLocal {
+				// 从本地上传到OSS
+				uploadErr = trackStepDuration("从本地上传到OSS", func() error {
+					return uploadToOSS(backupFileName, bucketName)
+				})
+			} else {
+				// 从Pod上传到OSS
+				uploadErr = trackStepDuration("从Pod上传到OSS", func() error {
+					return uploadToOSSFromPod(clientset, namespace, pod.Name, backupFileName, container, bucketName, configPath)
+				})
+			}
+			if uploadErr != nil {
+				return handleBackupError(uploadErr, clusterName, namespace, pod.Name, podStartTime)
+			}
+		}
+
+		if !keepLocal {
+			// 删除Pod中的文件
+			if err := trackStepDuration("删除Pod中的文件", func() error {
 				return deletePodFile(clientset, namespace, pod.Name, backupFileName, container, configPath)
-			})
+			}); err != nil {
+				return handleBackupError(err, clusterName, namespace, pod.Name, podStartTime)
+			}
 		}
 
 		podEndTime := time.Now()
 		duration := podEndTime.Sub(podStartTime)
-
-		if backupErr != nil {
-			log(0, "pod %s 的备份失败。耗时: %v, 错误: %v", pod.Name, duration, backupErr)
-
-			// 发送失败通知
-			notifyErr := sendFailureNotification(clusterName, namespace, pod.Name, backupErr)
-			if notifyErr != nil {
-				log(0, "发送失败通知失败: %v", notifyErr)
-			}
-
-			return backupErr
-		}
-
 		log(1, "pod %s 的备份完成。耗时: %v", pod.Name, duration)
 
-		// 上传oss才发送成功通知
+		// 发送成功通知
 		if uploadOSS {
-			err := sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName)
-			if err != nil {
-				log(0, "发送成功通知失败: %v", err)
+			if err := sendWeChatNotification(clusterName, namespace, pod.Name, bucketName, duration, backupFileName); err != nil {
+				log(0, "发送企业微信通知失败: %v", err)
 			} else {
-				log(1, "已发送成功通知")
+				log(1, "已发送企业微信通知")
 			}
 		}
 	}
 
 	return nil
+}
+
+func handleBackupError(err error, clusterName, namespace, podName string, startTime time.Time) error {
+	duration := time.Since(startTime)
+	log(0, "pod %s 的备份失败。耗时: %v, 错误: %v", podName, duration, err)
+
+	// 发送失败通知
+	notifyErr := sendFailureNotification(clusterName, namespace, podName, err)
+	if notifyErr != nil {
+		log(0, "发送失败通知失败: %v", notifyErr)
+	}
+
+	return err
 }
 
 func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, containerName, fileName, configPath string) error {
@@ -208,6 +227,10 @@ func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, contai
 }
 
 func uploadToOSSFromPod(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, bucketName, configPath string) error {
+	trackStepDuration("env check", func() error {
+		return ensureOssutilAvailable(clientset, namespace, podName, containerName, configPath)
+	})
+
 	credentials, err := loadCredentials(".credentials")
 	if err != nil {
 		return err
@@ -272,6 +295,7 @@ func deletePodFile(clientset *kubernetes.Clientset, namespace, podName, fileName
 func getClientSet(kubeconfig string) (*kubernetes.Clientset, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
+		//sendFailureNotification("", "", "", err)
 		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
@@ -292,6 +316,7 @@ func getPodList(clientset *kubernetes.Clientset, namespace string, pods []string
 			pod, err := clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 			if err != nil {
 				log(0, "获取 pod %s 失败: %v", podName, err)
+				sendFailureNotification("", namespace, podName, err)
 				continue
 			}
 			podList.Items = append(podList.Items, *pod)
@@ -560,7 +585,6 @@ func uploadToOSS(fileName, bucketName string) error {
 	imur, err := bucket.InitiateMultipartUpload(fileName, options...)
 	if err != nil {
 		return fmt.Errorf("初始化分片上传失败: %v", err)
-		return err
 	}
 
 	// 创建进度条
@@ -725,4 +749,16 @@ func constructOSSURL(endpoint, bucketName, fileName string) string {
 	// 构造 OSS URL
 	ossURL := fmt.Sprintf("https://%s.%s/%s", bucketName, endpoint, url.PathEscape(fileName))
 	return ossURL
+}
+
+func trackStepDuration(stepName string, stepFunc func() error) error {
+	startTime := time.Now()
+	err := stepFunc()
+	duration := time.Since(startTime)
+	if err != nil {
+		log(0, "%s 失败，耗时: %v, 错误: %v", stepName, duration, err)
+	} else {
+		log(1, "%s 完成，耗时: %v", stepName, duration)
+	}
+	return err
 }
