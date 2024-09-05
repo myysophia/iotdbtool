@@ -111,7 +111,7 @@ func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, po
 }
 
 func downloadFromOSS(clientset *kubernetes.Clientset, podName, containerName, fileName string) error {
-	credentials, err := loadCredentials(".credentials")
+	credentials, err := loadCredentials(".iotdbtools.config")
 	if err != nil {
 		log(2, "加载 OSS 凭证失败: %v", err)
 		return err

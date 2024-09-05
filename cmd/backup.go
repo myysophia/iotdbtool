@@ -97,6 +97,10 @@ var backupCmd = &cobra.Command{
 			go func(pod v1.Pod) {
 				err := backupPod(client, pod)
 				if err != nil {
+					//err := sendFailureNotification(clusterName, namespace, pod.Name, err) // catch getconfig、getpod之外的异常 发送通知
+					if err != nil {
+						return
+					} // hand
 					log(0, "pod %s 备份失败: %v", pod.Name, err)
 				}
 				doneChan <- true
@@ -130,8 +134,6 @@ func backupPod(clientset *kubernetes.Clientset, pod v1.Pod) error {
 		//}
 		// 生成备份文件名
 		backupFileName := getBackupFileName(pod.Name, outName)
-
-		//var err error
 
 		// 刷新数据
 		if err := trackStepDuration("刷新数据", func() error {
@@ -231,60 +233,27 @@ func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, contai
 }
 
 func uploadToOSSFromPod(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, bucketName, configPath string) error {
-	err := trackStepDuration("env check", func() error {
-		return ensureOssutilAvailable(clientset, namespace, podName, containerName, configPath)
-	})
+	ak, sk, endpoint, err := getOSSConfig()
 	if err != nil {
-		log(2, "env check 失败: %v", err)
-		return err
+		return fmt.Errorf("获取 OSS 配置失败: %v", err)
 	}
 
-	credentials, err := loadCredentials(".credentials")
+	// 确保 ossutil64 可用
+	err = ensureOssutilAvailable(clientset, namespace, podName, containerName, configPath)
 	if err != nil {
 		return err
 	}
 
-	// 首先创建 ossutil 配置文件
-	configContent := fmt.Sprintf(`
-[Credentials]
-language=EN
-endpoint=%s
-accessKeyID=%s
-accessKeySecret=%s
-`, credentials["ENDPOINT"], credentials["AK"], credentials["SK"])
+	// 构造 ossutil64 命令
+	ossutilCmd := fmt.Sprintf("./ossutil64 cp %s oss://%s/ -e %s -i %s -k %s", fileName, bucketName, endpoint, ak, sk)
 
-	configFileName := ".ossutilconfig"
-	createConfigCmd := fmt.Sprintf(`echo '%s' > %s`, configContent, configFileName)
-
-	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", createConfigCmd}, configPath)
-	if err != nil {
-		return fmt.Errorf("创建 ossutil 配置文件失败: %v", err)
-	}
-
-	// 使用配置文件上传
-	uploadCmd := fmt.Sprintf(`
-		./ossutil64 cp %s oss://%s/ \
-		-c %s \
-		--force
-	`, fileName, bucketName, configFileName)
-
-	log(2, "上传文件到 OSS 命令: %s", uploadCmd)
-	// 在 pod 中执行上传命令
-	cmd := []string{"sh", "-c", uploadCmd}
-
-	stdout, stderr, err := executePodCommandWithStderr(clientset, namespace, podName, containerName, cmd, configPath)
+	// 执行上传命令
+	_, stderr, err := executePodCommandWithStderr(clientset, namespace, podName, containerName, []string{"sh", "-c", ossutilCmd}, configPath)
 	if err != nil {
 		return fmt.Errorf("上传文件到 OSS 失败: %v, stderr: %s", err, stderr)
 	}
 
-	// 删除配置文件
-	deleteConfigCmd := fmt.Sprintf("rm -f %s", configFileName)
-	_, err = executePodCommand(clientset, namespace, podName, containerName, []string{"sh", "-c", deleteConfigCmd}, configPath)
-	if err != nil {
-		log(2, "警告: 删除 ossutil 配置文件失败: %v", err)
-	}
-
-	log(2, "文件 %s 已从 pod %s 上传到 OSS。输出: %s", fileName, podName, stdout)
+	log(1, "文件 %s 已成功上传到 OSS bucket %s", fileName, bucketName)
 	return nil
 }
 
@@ -324,7 +293,10 @@ func getPodList(clientset *kubernetes.Clientset, namespace string, pods []string
 			pod, err := clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 			if err != nil {
 				log(0, "获取 pod %s 失败: %v", podName, err)
-				sendFailureNotification("", namespace, podName, err)
+				err := sendFailureNotification("", namespace, podName, err)
+				if err != nil {
+					return nil, err
+				}
 				continue
 			}
 			podList.Items = append(podList.Items, *pod)
@@ -550,12 +522,12 @@ func getBackupFileName(podName, customName string) string {
 }
 
 func uploadToOSS(fileName, bucketName string) error {
-	credentials, err := loadCredentials(".credentials")
+	ak, sk, endpoint, err := getOSSConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("获取 OSS 配置失败: %v", err)
 	}
 
-	client, err := oss.New(credentials["ENDPOINT"], credentials["AK"], credentials["SK"])
+	client, err := oss.New(endpoint, ak, sk)
 	if err != nil {
 		return err
 	}
@@ -676,7 +648,7 @@ func log(level int, format string, args ...interface{}) {
 func sendWeChatNotification(clusterName, namespace, podName, bucketName string, duration time.Duration, backupFileName string) error {
 	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=77d13fe6-0047-48bc-803d-904b24590892"
 
-	credentials, err := loadCredentials(".credentials")
+	credentials, err := loadCredentials(".iotdbtools.config")
 	if err != nil {
 		return fmt.Errorf("加载凭证失败: %v", err)
 	}

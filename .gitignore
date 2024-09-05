@@ -1,6 +1,6 @@
 # .gitignore 文件内容
 
 .config
-.credentials
+.iotdbtools.config
 *.tar.gz
 gpttest.go

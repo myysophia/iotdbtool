@@ -34,4 +34,12 @@ func init() {
 	rootCmd.PersistentFlags().StringP("containers", "t", "iotdb-datanode", "default container")
 	rootCmd.PersistentFlags().StringP("cluster-name", "m", "", "k8s clusterName")
 	rootCmd.PersistentFlags().StringP("uploadoss", "", "yes", "uploadoss flag，default is true")
+	rootCmd.PersistentFlags().StringP("osscong", "", ".iotdbtools.conf", "oss config file")
+
+	//rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+	//	if ossConf {
+	//		configureOSS()
+	//	}
+	//	checkOSSConfig()
+	//}
 }
