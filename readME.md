@@ -56,6 +56,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbbackupv4
 
 ### restore 
 
+```bash
+./iotdbbackuprestorev2 restore --config /opt/kubeconfig/eks-config-ems-eu-newaccount  --namespace iotdbtest --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 1 --file emsdev_iotdb-datanode-0_20240830152642.tar.gz
+```
+
 
 
 ### 基本用法
@@ -117,15 +121,100 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 #### 备份uat iotdb
 
 ```bash
-./iotdbbackuprestorev2 backup --config /root/.kube/config  --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --datadir /iotdb/data/ --verbose 1 --outname emsuat
+iotdbtools backup --config /opt/kubeconfig/cce-ems-plusuat.kubeconfg  --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup  --outname emsuat --uploadoss=true --keep-local=true --datadir /iotdb/data/datanode --containers=iotdb-confignode --verbose=2
+开始时间: 2024-09-05 15:32:53
+正在处理 pod: iotdb-datanode-0
+正在处理容器: iotdb-confignode
+Flush command output: Msg: The statement is executed successfully.
+
+刷新数据 完成，耗时: 7.206705227s
+压缩文件 emsuat_iotdb-datanode-0_20240905153253.tar.gz 成功
+压缩数据 完成，耗时: 2m4.26350324s
+文件 emsuat_iotdb-datanode-0_20240905153253.tar.gz 已从 pod iotdb-datanode-0 复制到本地
+复制备份文件到本地 完成，耗时: 33.381891837s
+emsuat_iotdb-datanode-0_20240905153253.tar.gz 正在上传 100% |██████████████████████████████████████████████████████████████████████████████████████████████████████| (1.4/1.4 GB, 27 MB/s)
+文件 emsuat_iotdb-datanode-0_20240905153253.tar.gz 已上传到OSS，将在 2024-09-12 15:35:38 后自动删除
+从本地上传到OSS 完成，耗时: 51.59761308s
+pod iotdb-datanode-0 的备份完成。耗时: 3m36.449795156s
+已发送企业微信通知
+结束时间: 2024-09-05 15:36:30
+总耗时: 3m36.691697783s
+
 ```
 
 
 
-#### 备份 cn iotdb
+#### 备份 cn/eu iotdb
 
 ```bash
-./iotdbbackuprestorev2 backup --config /root/.kube/config  --namespace ems-plus-mapai --pods=iotdb-datanode-0,iotdb-datanode-1,iotdb-datanode-2 --bucketname iotdb-backup --datadir /iotdb/data/ --cluster-name emscn --uploadoss true
+# CN 集群并行备份
+iotdbtools backup --config /opt/kubeconfig/cce-ems-plusuat.kubeconfg  --namespace iotdb-bigdata  --pods=iotdb-datanode-0,iotdb-datanode-1,iotdb-datanode-2 --bucketname iotdb-backup  --outname emscn --uploadoss=true --keep-local=true --datadir /iotdb/data/datanode  --containers=iotdb-confignode --verbose=2
+开始时间: 2024-09-05 15:50:31
+正在处理 pod: iotdb-datanode-2
+正在处理 pod: iotdb-datanode-1
+正在处理容器: iotdb-confignode
+正在处理容器: iotdb-confignode
+正在处理 pod: iotdb-datanode-0
+正在处理容器: iotdb-confignode
+Flush command output: Msg: The statement is executed successfully.
+
+Flush command output: Msg: The statement is executed successfully.
+
+Flush command output: Msg: The statement is executed successfully.
+
+刷新数据 完成，耗时: 5.909704181s
+刷新数据 完成，耗时: 5.925296428s
+刷新数据 完成，耗时: 6.148190492s
+压缩文件 emscn_iotdb-datanode-2_20240905155031.tar.gz 成功
+压缩数据 完成，耗时: 49.883324209s
+压缩文件 emscn_iotdb-datanode-0_20240905155031.tar.gz 成功
+压缩数据 完成，耗时: 1m8.42604954s
+文件 emscn_iotdb-datanode-2_20240905155031.tar.gz 已从 pod iotdb-datanode-2 复制到本地
+复制备份文件到本地 完成，耗时: 22.414878967s
+emscn_iotdb-datanode-2_20240905155031.tar.gz 正在上传  53% |██████████████████████████████████████████████████████                                                | (493/925 MB, 28 MB/s) [16s:15s]压缩文件 emscn_iotdb-datanode-1_20240905155031.tar.gz 成功
+压缩数据 完成，耗时: 1m29.660285987s
+emscn_iotdb-datanode-2_20240905155031.tar.gz 正在上传 100% |███████████████████████████████████████████████████████████████████████████████████████████████████████| (925/925 MB, 27 MB/s)
+文件 emscn_iotdb-datanode-2_20240905155031.tar.gz 已上传到OSS，将在 2024-09-12 15:51:49 后自动删除
+从本地上传到OSS 完成，耗时: 34.027278099s
+pod iotdb-datanode-2 的备份完成。耗时: 1m52.250870027s
+已发送企业微信通知
+文件 emscn_iotdb-datanode-1_20240905155031.tar.gz 已从 pod iotdb-datanode-1 复制到本地
+复制备份文件到本地 完成，耗时: 31.440093628s
+emscn_iotdb-datanode-1_20240905155031.tar.gz 正在上传  13% |█████████████                                                                                       | (157 MB/1.2 GB, 39 MB/s) [3s:25s]文件 emscn_iotdb-datanode-0_20240905155031.tar.gz 已从 pod iotdb-datanode-0 复制到本地
+复制备份文件到本地 完成，耗时: 56.685553013s
+emscn_iotdb-datanode-0_20240905155031.tar.gz 正在上传 100% |███████████████████████████████████████████████████████████████████████████████████████████████████████| (1.2/1.2 GB, 23 MB/s)
+文件 emscn_iotdb-datanode-0_20240905155031.tar.gz 已上传到OSS，将在 2024-09-12 15:52:42 后自动删除
+从本地上传到OSS 完成，耗时: 53.647831764s
+pod iotdb-datanode-0 的备份完成。耗时: 3m4.907742483s
+已发送企业微信通知
+emscn_iotdb-datanode-1_20240905155031.tar.gz 正在上传 100% |█████████████████████████████████████████████████████████████████████████████████████████████████████| (1.2/1.2 GB, 13 MB/s)
+文件 emscn_iotdb-datanode-1_20240905155031.tar.gz 已上传到OSS，将在 2024-09-12 15:52:38 后自动删除
+从本地上传到OSS 完成，耗时: 1m32.410085684s
+pod iotdb-datanode-1 的备份完成。耗时: 3m39.420246496s
+已发送企业微信通知
+结束时间: 2024-09-05 15:54:10
+总耗时: 3m39.614650646s
+
+
+#EU
+iotdbtools backup --namespace ems-eu --pods=iotdb-datanode-0 --bucketname="iotdb-backup" --outname=emseu  --uploadoss=true --keep-local=true --containers=iotdb-confignode --verbose=2
+开始时间: 2024-09-05 07:41:23
+正在处理 pod: iotdb-datanode-0
+正在处理容器: iotdb-confignode
+Flush command output: Msg: The statement is executed successfully.
+
+刷新数据 完成，耗时: 6.527718513s
+压缩文件 emseu_iotdb-datanode-0_20240905074123.tar.gz 成功
+压缩数据 完成，耗时: 5.380294878s
+文件 emseu_iotdb-datanode-0_20240905074123.tar.gz 已从 pod iotdb-datanode-0 复制到本地
+复制备份文件到本地 完成，耗时: 2.018793187s
+emseu_iotdb-datanode-0_20240905074123.tar.gz 正在上传 100% |███████████████████████████████████████████████████████████████████████████████████████████████████████| (163/163 MB, 16 MB/s)
+文件 emseu_iotdb-datanode-0_20240905074123.tar.gz 已上传到OSS，将在 2024-09-12 07:41:37 后自动删除
+从本地上传到OSS 完成，耗时: 10.79072678s
+pod iotdb-datanode-0 的备份完成。耗时: 24.718321162s
+已发送企业微信通知
+结束时间: 2024-09-05 07:41:49
+总耗时: 26.303233462s
 ```
 
 
@@ -135,7 +224,7 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 备份指定pod、container中指定目录到本地或oss
 
 ```bash
-iotdbbackuprestorev2 backup --namespace ems-eu --pods vnnox-middle-configcenter-7459fcfb5b-6x8gz --datadir /tmp --containers vnnox-middle-configcenter --uploadoss true --bucketname iotdb-backup --keep-local false  --verbose 2
+iotdbtools backup --namespace ems-eu --pods vnnox-middle-configcenter-7459fcfb5b-6x8gz --datadir /tmp --containers vnnox-middle-configcenter --uploadoss true --bucketname iotdb-backup --keep-local false  --verbose 2
 ```
 
 #### 恢复cn 的备份
@@ -144,18 +233,11 @@ iotdbbackuprestorev2 backup --namespace ems-eu --pods vnnox-middle-configcenter-
 iotdbbackuprestorev2 restore --config .config --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 2 --file emseu-workstaaa_iotdb-datanode-0_iotdb-datanode_20240822094200.tar.gz
 ```
 
-#### 数据比对
-
-```bash
-show devices 比较设备数量
-count timeseries 比较时间序列总数
-```
-
 ### 配置
 
 默认将备份文件上传到oss，可以通过uploadoss关闭
 
-OSS 的访问凭证保存到 .credentials 文件中，请妥善保存
+OSS 的访问凭证保存到本地的 .credentials 文件中，请妥善保存
 
 ```b
 AK=your-access-key
@@ -172,5 +254,8 @@ ENDPOINT=your-oss-endpoint
 ### 其他
 - 统计代码行数
 
+```bash
 `find . -name "*.go"  | xargs -I GG echo "wc -l GG" | bash | awk '{sum+=$1} END {print sum}'
-925`
+1725
+```
+
