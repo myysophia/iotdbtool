@@ -7,9 +7,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "iotdbtool",
+	Use:   "iotdbtools",
 	Short: "A tool for back up and restore IoTDB data for nova-ems",
-	Long:  `iotdbtool is a CLI tool to backup and restore IoTDB data in Kubernetes.`,
+	Long:  `iotdbtools is a CLI tool to backup and restore IoTDB data in Kubernetes.`,
 }
 
 // 定义 completion 子命令
@@ -19,13 +19,13 @@ var completionCmd = &cobra.Command{
 	Long: `To load completions:
 
 Bash:
-  $ source <(iotdbtool completion bash)
+  $ source <(iotdbtools completion bash)
 
   # To load completions for each session, execute once:
   # Linux:
-  $ iotdbtool completion bash > /etc/bash_completion.d/iotdbtool
+  $ iotdbtools completion bash > /etc/bash_completion.d/iotdbtools
   # macOS:
-  $ iotdbtool completion bash > /usr/local/etc/bash_completion.d/iotdbtool
+  $ iotdbtools completion bash > /usr/local/etc/bash_completion.d/iotdbtools
 
 Zsh:
   # If shell completion is not already enabled in your environment,
@@ -33,7 +33,7 @@ Zsh:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
   # To load completions for each session, execute once:
-  $ iotdbtool completion zsh > "${fpath[1]}/_iotdbtool"
+  $ iotdbtools completion zsh > "${fpath[1]}/_iotdbtools"
 
   # You will need to start a new shell for this setup to take effect.`,
 	Args:      cobra.ExactValidArgs(1),
@@ -72,7 +72,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("containers", "t", "iotdb-datanode", "default container")
 	rootCmd.PersistentFlags().StringP("cluster-name", "m", "", "k8s clusterName")
 	rootCmd.PersistentFlags().StringP("uploadoss", "", "yes", "uploadoss flag，default is true")
-	rootCmd.PersistentFlags().StringP("osscong", "", ".iotdbtools.conf", "oss config file")
+	rootCmd.PersistentFlags().StringP("osscong", "", ".iotdbtoolss.conf", "oss config file")
 	// 添加 completion 子命令
 	rootCmd.AddCommand(completionCmd)
 	//rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
