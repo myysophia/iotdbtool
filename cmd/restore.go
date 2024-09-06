@@ -19,7 +19,7 @@ func init() {
 	restoreCmd.Flags().StringVar(&restoreFile, "file", "", "要恢复的文件名")
 	restoreCmd.Flags().StringSliceVar(&pods, "pods", []string{}, "Comma-separated list of pod names")
 	restoreCmd.Flags().StringVarP(&label, "label", "l", "", "Label selector to filter pods")
-	restoreCmd.Flags().StringVarP(&dataDir, "datadir", "d", "/iotdb/data/", "Data directory inside the pod")
+	restoreCmd.Flags().StringVarP(&dataDir, "datadir", "d", "/iotdb/data/datanode", "Data directory inside the pod")
 	restoreCmd.Flags().StringVarP(&outName, "outname", "o", "", "Output file name for the backup")
 	restoreCmd.Flags().StringVarP(&bucketName, "bucketname", "b", "", "OSS bucket name")
 	restoreCmd.Flags().IntVarP(&verbose, "verbose", "v", 0, "Verbose level (0: silent, 1: basic, 2: detailed)")

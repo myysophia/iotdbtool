@@ -25,7 +25,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("namespace", "n", "iotdb", "Kubernetes namespace")
 	rootCmd.PersistentFlags().StringP("pods", "p", "iotdb-datanode-0", "backup by pod name")
 	rootCmd.PersistentFlags().StringP("label", "l", "statefulset.kubernetes.io/pod-name=iotdb-datanode-0", "backup by pod label")
-	rootCmd.PersistentFlags().StringP("datadir", "d", "/iotdb/data", "iotdb data dir")
+	rootCmd.PersistentFlags().StringP("datadir", "d", "/iotdb/data/datanode", "iotdb data dir")
 	rootCmd.PersistentFlags().StringP("outname", "o", "iotdb-datanode-back", "backup file name")
 	rootCmd.PersistentFlags().StringP("bucketname", "b", "iotdb-backup", "oss bucket name")
 	rootCmd.PersistentFlags().StringP("verbose", "v", "0", "backup log level")

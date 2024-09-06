@@ -4,3 +4,4 @@
 .iotdbtools.config
 *.tar.gz
 gpttest.go
+.credentials
