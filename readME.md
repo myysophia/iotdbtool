@@ -52,13 +52,20 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbtools
 
 ## 使用指南
 ### backup
-![backup](https://github.com/user-attachments/assets/e24fce0a-b7b9-422b-a5b2-5b1aa5add0ef)
+```bash
+ iotdbtools backup --config /opt/kubeconfig/cce-yx --namespace ems-uat --pods iotdb-datanode-0 --bucketname iotdb-backup \
+--outname emsyx --uploadoss true --keep-local true --verbose 2
+```
+![backup](https://github.com/user-attachments/assets/6e1188e0-1c0f-4a72-9d47-273d3dc74236)
+
 
 ### restore 
 
 ```bash
-./iotdbtools restore --config /opt/kubeconfig/eks-config-ems-eu-newaccount  --namespace iotdbtest --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 1 --file emsdev_iotdb-datanode-0_20240830152642.tar.gz
+ iotdbtools restore --config /opt/kubeconfig/eks-config-ems-eu-newaccount --namespace iotdb --pods iotdb-datanode-0 \
+--bucketname iotdb-backup --file emsyx_iotdb-datanode-0_20240906154128.tar.gz --verbose 1
 ```
+![restore](https://github.com/user-attachments/assets/ddb7f952-f204-445f-88a6-9da06c818392)
 
 
 
