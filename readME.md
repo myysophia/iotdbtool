@@ -29,9 +29,25 @@ Kubernetes 集群
 首先，确保你已经安装了 Go 语言开发环境。然后，克隆项目并编译二进制文件：
 
 ```bash
+.
+|-- Makefile
+|-- bin
+|   `-- iotdbtools
+|-- cmd
+|   |-- backup.go
+|   |-- oss_config.go
+|   |-- restore.go
+|   `-- root.go
+|-- command.log
+|-- go.mod
+|-- go.sum
+|-- iotdbtool-architecture.svg
+|-- main.go
+`-- readME.md
+
 git clone http://git/iotdbtool.git
 cd iotdbtool
-go build -o iotdbtools
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -ldflags "-w" -o bin/iotdbtools
 ```
 
 ### 交叉编译（在 Windows 上编译 Linux 二进制文件）
@@ -40,10 +56,6 @@ set CGO_ENABLED=0
 set GOOS=linux
 set GOARCH=amd64
 go build -o iotdbbackup
-
-
-# linux 上build 语法
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbtools
 ```
 
  设置为 0，可以避免对系统上 C 库的依赖，从而生成更加通用的二进制文件。
