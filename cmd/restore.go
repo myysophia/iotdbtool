@@ -21,7 +21,7 @@ func init() {
 	restoreCmd.Flags().StringVarP(&label, "label", "l", "", "Label selector to filter pods")
 	restoreCmd.Flags().StringVarP(&dataDir, "datadir", "d", "/iotdb/data/datanode", "Data directory inside the pod")
 	restoreCmd.Flags().StringVarP(&outName, "outname", "o", "", "Output file name for the backup")
-	restoreCmd.Flags().StringVarP(&bucketName, "bucketname", "b", "", "OSS bucket name")
+	restoreCmd.Flags().StringVarP(&bucketName, "bucketname", "b", "iotdb-backup", "OSS bucket name")
 	restoreCmd.Flags().IntVarP(&verbose, "verbose", "v", 0, "Verbose level (0: silent, 1: basic, 2: detailed)")
 	restoreCmd.Flags().StringVar(&configPath, "config", "/root/.kube/config", "Path to the kubeconfig file")
 	restoreCmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
