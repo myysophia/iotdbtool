@@ -185,6 +185,12 @@ ENDPOINT=your-oss-endpoint
 
 ## 2.0
 
+```bash
+1. 新增恢复iotdb备份逻辑
+```
+
+
+
 ## 2.1
 
 ```bash
