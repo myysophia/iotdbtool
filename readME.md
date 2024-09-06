@@ -29,7 +29,7 @@ Kubernetes 集群
 首先，确保你已经安装了 Go 语言开发环境。然后，克隆项目并编译二进制文件：
 
 ```bash
-git clone http://git.novatools.vip/Nova006393/iotdbtool.git
+git clone http://git/iotdbtool.git
 cd iotdbtool
 go build -o iotdbtools
 ```
@@ -48,7 +48,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o iotdbtools
 
  设置为 0，可以避免对系统上 C 库的依赖，从而生成更加通用的二进制文件。
 
-编译完成后，你将获得一个 iotdbbackup 二进制文件。可以到处运行
+编译完成后，你将获得一个 iotdbtools 二进制文件。可以到处运行
 
 ## 使用指南
 ### backup
