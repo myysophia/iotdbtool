@@ -114,6 +114,17 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 | `--chunkSize` | 指定分片下载、上传的大小 | `10MB` |
 | `--uploadoss` |  |  |
 
+### 命令行补全
+
+
+
+```bash
+# zsh
+source <(iotdbtools completion zsh)
+# bash
+source <(iotdbtools completion bash)
+```
+
 
 
 ### 示例
@@ -214,5 +225,6 @@ keep-local为true时备份先落到从本地上传到OSS，使用oss-go-sdk，�
 2. fix issue: 失败时也发送成功通知的
 3. 增加性能记录函数trackStepDuration
 4. 适配多级bucketname
+5. 新增iotdbtools 命令行补全
 ```
 
