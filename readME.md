@@ -4,29 +4,67 @@ iotdbtool 是一个使用 Go 语言编写的命令行工具，基于 Kubernetes 
 
 iotdbtool 支持 iotDB 单机、集群，备份与恢复，备份文件存储在 oss 上，主要实现了 k8s 部署的有状态服务的备份恢复
 
+### croba
+
+`cobra`，它是一个非常流行的 Go 库，主要用于创建命令行程序（CLI）。它提供了强大的命令行解析功能，帮助开发者快速构建功能丰富、结构化的命令行工具。
+
+常见使用场景：
+
+- 开发复杂的命令行工具和应用程序。
+- 结合 `viper` 用于解析配置文件。
+- `kubectl` 等工具就是基于 `cobra` 开发的。
+
+
+
 ## 痛点
 
-- 开源版本 iotdb 没有现成的冷备方案，exporttsfile 基本不可用，引用几十个 jar 导出全库需要巨量内存。
-- 业务核心组件，iotdb down = 业务不可用 down。 每天 2 次冷备，以备不时之需
-- 多个 iotdb 节点，备份恢复没有一个 all in one 简单的工具
+- 备份步骤相当繁琐，比较耗时，备份储能全部环境大约1-2H
+
+1. 准备kubeconfig文件连接k8s集群
+2. 使用kubectl命令行进入iotdb pod ，使用iotdb客户端连接iotdb
+3. 在iotdb数据库中执行flush 保证memory table中的数据落盘
+4. 压缩iotdb 的数据目录
+5. 下载ossutil、配置AK/SK。
+6. 等待步骤4执行完后执行ossutil cp命令将备份上传到oss上
+7. 循环步骤2-6备份iotdb其他数据节点
+8. 重复步骤1-6备份备份其他iotdb集群
+9. 备份完成
+
+- 严重依赖kubectl、iotdb-cli、ossutil等其他命令
 
 ## 功能特性
 
-- 支持任意 Pod 任意容器中的指定目录。
-- 将备份文件上传到阿里云 OSS，默认保存 7 天
-- 支持多种日志输出级别，便于调试和监控。
 - 支持 iotdb 单机、集群的备份和恢复
-- goroutine 支持并发备份
-- oss sdk 上传 oss、分片上传、进度条
+- goroutine 原生支持并发备份
+- 借助ali-oss-sdk 实现分片上传、进度条等功能
 - 不依赖 kubectl 命令，使用 client-go 直接调用 api 操作 pod，安全高效
+- 支持任意 Pod 任意容器中的指定目录
+- 支持 prehook，备份前flush on cluster强刷盘
+- 将备份文件上传到阿里云 OSS，默认保存 3 天
+- 支持多种日志输出级别，便于调试和监控。
 
 ## 系统要求
-Go 1.16 或更高版本
-Kubernetes 集群
-阿里云 OSS 存储桶和相应的访问权限
+
+go mod依赖
+
+```
+aliyun-oss-go-sdk v3.0.2+incompatible
+
+github.com/spf13/cobra v1.7.0
+
+k8s.io/api v0.27.3
+
+k8s.io/client-go v0.27.3
+```
+
+阿里云oss 上传文件权限 <可选>
+
+k8s集群访问权限
+
 ## 安装
+
 ### 从源码构建
-首先，确保你已经安装了 Go 语言开发环境。然后，克隆项目并编译二进制文件：
+首先，确保你已经安装了 Go 1.21 开发环境。然后，克隆项目并编译二进制文件：
 
 ```bash
 .
@@ -48,19 +86,25 @@ Kubernetes 集群
 git clone http://git/iotdbtool.git
 cd iotdbtool
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -ldflags "-w" -o bin/iotdbtools
+
 ```
 
-### 交叉编译（在 Windows 上编译 Linux 二进制文件）
+**`-a`**:
+
+- **作用**：强制重新编译所有依赖包，不论这些包是否已经被编译过或者是否存在缓存。Go 编译器会缓存依赖包以提高编译速度，默认情况下只重新编译必要的包。加上 `-a` 标志后，所有依赖包都会重新编译，适用于在编译时需要避免使用缓存的场景。
+
+**`-installsuffix cgo`**:
+
+- **作用**：为编译过程生成的目标文件（object files）加上一个后缀（这里是 `cgo`）。
+- `-ldflags` 传递链接器的选项给 Go 编译器的链接器。。`-w`：此标志告诉 Go 编译器的链接器不要生成调试信息（例如符号表、调试符号等），这样可以**减小二进制文件的大小**
+
+### 直接下载二进制
+
 ```bash
-set CGO_ENABLED=0
-set GOOS=linux
-set GOARCH=amd64
-go build -o iotdbbackup
+wget https://nova-software-download.oss-cn-hangzhou.aliyuncs.com/iotdbtools && chmod +x iotdbtools && mv iotdbtools /usr/local/bin
 ```
 
- 设置为 0，可以避免对系统上 C 库的依赖，从而生成更加通用的二进制文件。
 
-编译完成后，你将获得一个 iotdbtools 二进制文件。可以到处运行
 
 ## 使用指南
 ### backup
@@ -110,7 +154,7 @@ Flags:
       --uploadoss string      uploadoss flag，default is true (default "yes")
   -v, --verbose string        backup log level (default "0")
 
-Use "iotdbbackuprestore [command] --help" for more information about a command.
+Use "iotdbtools [command] --help" for more information about a command.
 
 ```
 
@@ -135,7 +179,7 @@ Use "iotdbbackuprestore [command] --help" for more information about a command.
 
 ### 命令行补全
 
-
+corba
 
 ```bash
 # zsh
@@ -203,6 +247,7 @@ ENDPOINT=your-oss-endpoint
 日志级别 0 将不输出任何日志，适合静默执行。
 日志级别 1 将输出基本操作日志。
 日志级别 2 将输出详细日志，适合调试和问题排查。
+
 ### 其他
 - 统计代码行数
 
@@ -211,22 +256,16 @@ ENDPOINT=your-oss-endpoint
 1725
 ```
 
-# 7. Release
+# 7. Release Note
 
-## 2.0
-
-```bash
-1. 新增恢复iotdb备份逻辑
-```
-
-
-
-## 2.1
+## 2.3 
 
 ```bash
-1. 新增keep-local参数
-2. 新增uploadoss 参数控制上传逻辑
-keep-local为true时备份先落到从本地上传到OSS，使用oss-go-sdk，否则使用ossutil上传.
+1. 新增hook判断逻辑，提升适配性。可备份任何pod中的文件
+2. fix issue: 失败时也发送成功通知的
+3. 增加性能记录函数trackStepDuration
+4. 适配多级bucketname
+5. 新增iotdbtools 命令行补全功能
 ```
 
 ## 2.2
@@ -237,13 +276,30 @@ keep-local为true时备份先落到从本地上传到OSS，使用oss-go-sdk，�
 3. 增加集群备份并行逻辑
 ```
 
-## 2.3 
+## 2.1
 
 ```bash
-1. 新增hook判断逻辑，提升适配性。可备份任何pod中的文件
-2. fix issue: 失败时也发送成功通知的
-3. 增加性能记录函数trackStepDuration
-4. 适配多级bucketname
-5. 新增iotdbtools 命令行补全
+1. 新增keep-local参数
+2. 新增uploadoss 参数控制上传逻辑
+keep-local为true时备份先落到从本地上传到OSS，使用oss-go-sdk，否则使用ossutil上传.
+
 ```
 
+## 2.0
+
+```bash
+1. 新增恢复iotdb备份逻辑
+```
+
+
+
+# 展望与鸣谢
+
+这个工具刚开始叫iotdbbackuprestore 后来改成了iotdbtool。  有些运维操作都可以集成进来，例如iotdb部署、迁移(单机到集群、集群到单机、跨云/IDC迁移)、数据比对....
+
+例如
+
+- iotdbtool create cluster 1c3d.yaml 通过声明式的方式创建集群，背后由iotdb operator驱动
+-  iotdbtool data diff   数据比较
+
+ 特别感谢chatgpt 和通义千问
