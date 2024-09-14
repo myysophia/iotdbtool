@@ -29,4 +29,4 @@ jobs:
           draft: true
           fail_on_unmatched_files: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.LGITHUB_TOKEN  }}
