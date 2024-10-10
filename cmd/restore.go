@@ -9,6 +9,7 @@ import (
 	_ "k8s.io/client-go/tools/clientcmd"
 	_ "path/filepath"
 	"strings"
+	"sync"
 )
 
 var (
@@ -74,6 +75,8 @@ var restoreCmd = &cobra.Command{
 
 func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, pods []string) error {
 	containerList := strings.Split(containers, ",")
+	var wg sync.WaitGroup // 使用 WaitGroup 等待所有 goroutine 完成
+
 	for _, containerName := range containerList {
 		containerName = strings.TrimSpace(containerName)
 		fmt.Printf("正在处理 pod %s 的容器 %s\n", pod.Name, containerName)
@@ -81,31 +84,54 @@ func restorePod(clientset *kubernetes.Clientset, pod v1.Pod, fileName string, po
 		trackStepDuration("env check", func() error {
 			return ensureOssutilAvailable(clientset, namespace, pod.Name, containerName, configPath)
 		})
+
 		// 下载文件从 OSS
-		trackStepDuration("download fron oss", func() error {
+		trackStepDuration("download from oss", func() error {
 			return downloadFromOSS(clientset, pod.Name, containerName, fileName)
 		})
 
-		// 解压文件并执行恢复命令
-		restoreCmd := fmt.Sprintf(`
-			tar -xf %s && 
-			find iotdb/data/datanode/ -name "*.tsfile" | 
-			xargs -I GG echo "/iotdb/sbin/start-cli.sh -h %s -e \"load 'GG' verify=false \";" | 
-			bash
-		`, fileName, pod.Name)
-		log(2, "执行恢复命令: %s", restoreCmd)
+		// 解压文件并获取 tsfile
+		restoreCmd := fmt.Sprintf("tar -xf %s && find iotdb/data/datanode/ -name \"*.tsfile\"", fileName)
+		log(2, "执行解压命令: %s", restoreCmd)
 		_, err := executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", restoreCmd}, configPath)
 		if err != nil {
-			return fmt.Errorf("执行恢复命令失败: %v", err)
+			return fmt.Errorf("解压命令失败: %v", err)
 		}
 
-		// 删除文件
-		deleteCmd := fmt.Sprintf(" rm -rf ./iotdb")
-		_, err = executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", deleteCmd}, configPath)
+		// 获取 tsfile 列表
+		tsfileCmd := "find iotdb/data/datanode/ -name \"*.tsfile\""
+		tsfileList, err := executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", tsfileCmd}, configPath)
 		if err != nil {
-			fmt.Printf("警告：删除下载的文件 %s 失败: %v\n", fileName, err)
+			return fmt.Errorf("获取 tsfile 列表失败: %v", err)
+		}
+
+		// 拆分 tsfile 列表并并发执行 load 命令
+		tsfiles := strings.Split(tsfileList, "\n")
+		for _, tsfile := range tsfiles {
+			if tsfile == "" {
+				continue
+			}
+			wg.Add(1) // 增加 WaitGroup 计数
+			go func(tsfile string) {
+				defer wg.Done() // 完成时减少计数
+				loadCmd := fmt.Sprintf("/iotdb/sbin/start-cli.sh -h %s -e \"load '%s' verify=false\";", pod.Name, tsfile)
+				log(2, "执行加载命令: %s", loadCmd)
+				_, err := executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", loadCmd}, configPath)
+				if err != nil {
+					fmt.Printf("加载命令失败: %v\n", err)
+				}
+			}(tsfile) // 传递 tsfile
 		}
 	}
+
+	wg.Wait() // 等待所有 goroutine 完成
+
+	// 删除文件
+	//deleteCmd := fmt.Sprintf("rm -rf ./iotdb")
+	//_, err := executePodCommand(clientset, namespace, pod.Name, containerName, []string{"sh", "-c", deleteCmd}, configPath)
+	//if err != nil {
+	//	fmt.Printf("警告：删除下载的文件 %s 失败: %v\n", fileName, err)
+	//}
 
 	return nil
 }
@@ -142,6 +168,7 @@ accessKeySecret=%s
 	`, bucketName, fileName, fileName, configFileName)
 
 	_, stderr, err := executePodCommandWithStderr(clientset, namespace, podName, containerName, []string{"sh", "-c", downloadCmd}, configPath)
+	log(2, "下载文件命令的 downloadCmd: %s", downloadCmd)
 	if err != nil {
 		return fmt.Errorf("从 OSS 下载文件失败: %v, stderr: %s", err, stderr)
 	}

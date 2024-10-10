@@ -383,7 +383,7 @@ func flushData(clientset *kubernetes.Clientset, namespace, podName, containerNam
 }
 
 func compressData(clientset *kubernetes.Clientset, namespace, podName, dataDir, outputFileName, containerName, configPath, outName string) error {
-	cmd := []string{"tar", "-czf", outputFileName, dataDir}
+	cmd := []string{"tar", "--warning=no-file-changed", "-czf", outputFileName, dataDir}
 	kubeconfigPath := configPath
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
@@ -754,21 +754,21 @@ func sendFailureNotification(clusterName, namespace, podName string, err error) 
 }
 
 func constructOSSURL(endpoint, bucketName, fileName string) string {
-    // 移除 endpoint 中的 "http://" 或 "https://"
-    endpoint = strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")
+	// 移除 endpoint 中的 "http://" 或 "https://"
+	endpoint = strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")
 
-    // 构造 OSS URL
-    ossURL := fmt.Sprintf("https://%s.%s/%s", bucketName, endpoint, url.PathEscape(fileName))
+	// 构造 OSS URL
+	ossURL := fmt.Sprintf("https://%s.%s/%s", bucketName, endpoint, url.PathEscape(fileName))
 
-    // 处理多级目录的情况
-    if strings.Contains(bucketName, "/") {
-        parts := strings.SplitN(bucketName, "/", 2)
-        bucketName = parts[0]
-        prefix := parts[1]
-        ossURL = fmt.Sprintf("https://%s.%s/%s/%s", bucketName, endpoint, prefix, url.PathEscape(fileName))
-    }
+	// 处理多级目录的情况
+	if strings.Contains(bucketName, "/") {
+		parts := strings.SplitN(bucketName, "/", 2)
+		bucketName = parts[0]
+		prefix := parts[1]
+		ossURL = fmt.Sprintf("https://%s.%s/%s/%s", bucketName, endpoint, prefix, url.PathEscape(fileName))
+	}
 
-    return ossURL
+	return ossURL
 }
 
 func trackStepDuration(stepName string, stepFunc func() error) error {
