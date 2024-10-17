@@ -677,7 +677,7 @@ func log(level int, format string, args ...interface{}) {
 }
 
 func sendWeChatNotification(clusterName, namespace, podName, bucketName string, duration time.Duration, backupFileName string) error {
-	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=77d13fe6-0047-48bc-803d-904b24590892"
+	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key"
 
 	credentials, err := loadCredentials(".credentials")
 	if err != nil {
@@ -720,7 +720,7 @@ func sendWeChatNotification(clusterName, namespace, podName, bucketName string, 
 }
 
 func sendFailureNotification(clusterName, namespace, podName string, err error) error {
-	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=77d13fe6-0047-48bc-803d-904b24590892"
+	webhookURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key"
 
 	content := fmt.Sprintf(`备份失败通知
 > **集群**：%s
