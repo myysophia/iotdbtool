@@ -281,7 +281,7 @@ keep-local为true时备份先落到从本地上传到OSS，使用oss-go-sdk，�
 
 # 展望与鸣谢
 
-这个工具刚开始叫iotdbbackuprestore 后来改成了iotdbtool。  有些运维操作都可以集成进来，例如iotdb部署、迁移(单机到集群、集群到单机、跨云/IDC迁移)、数据比对....
+这个工具刚开始叫iotdbbackuprestore 后来改成了iotdbtool。  有些运维操作都可以集成进来，例如iotdb部署、迁移(单机到集群、集群到单机、跨云/IDC迁移)、数据比对、监控与告警....
 
 例如
 
