@@ -192,23 +192,12 @@ source <(iotdbtools completion bash)
 
 ### 示例
 
-#### 备份 uat iotdb
+#### 备份  iotdb
 
 ```bash
 iotdbtools backup --config /opt/kubeconfig/cce-ems-plusuat.kubeconfg  --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup  --outname emsuat --uploadoss=true --keep-local=true --datadir /iotdb/data/datanode --containers=iotdb-confignode --verbose=2
 ```
 
-
-
-#### 备份 cn/eu iotdb
-
-```bash
-# CN 集群并行备份
-iotdbtools backup --config /opt/kubeconfig/cce-ems-plusuat.kubeconfg  --namespace iotdb-bigdata  --pods=iotdb-datanode-0,iotdb-datanode-1,iotdb-datanode-2 --bucketname iotdb-backup  --outname emscn --uploadoss=true --keep-local=true --datadir /iotdb/data/datanode  --containers=iotdb-confignode --verbose=2
-
-#EU
-iotdbtools backup --namespace ems-eu --pods=iotdb-datanode-0 --bucketname="iotdb-backup" --outname=emseu  --uploadoss=true --keep-local=true --containers=iotdb-confignode --verbose=2
-```
 
 
 
@@ -223,7 +212,7 @@ iotdbtools backup --namespace ems-eu --pods=iotdb-datanode-0 --bucketname="iotdb
  iotdbtools backup --config /opt/kubeconfig/eks-config-ems-eu-newaccount --namespace ems-eu --pods vnnox-middle-configcenter-7459fcfb5b-6x8gz --datadir /tmp --containers vnnox-middle-configcenter --uploadoss true --bucketname iotdb-backup --keep-local false  --verbose 2
 ```
 
-#### 恢复 cn 的备份
+#### 恢复备份
 
 ```bash
 iotdbtools restore --config .config --namespace ems-uat --pods=iotdb-datanode-0 --bucketname iotdb-backup --verbose 2 --file emseu-workstaaa_iotdb-datanode-0_iotdb-datanode_20240822094200.tar.gz
@@ -249,12 +238,9 @@ ENDPOINT=your-oss-endpoint
 日志级别 2 将输出详细日志，适合调试和问题排查。
 
 ### 其他
-- 统计代码行数
+- 企微通知
 
-```bash
-`find . -name "*.go"  | xargs -I GG echo "wc -l GG" | bash | awk '{sum+=$1} END {print sum}'
-1725
-```
+替换为自己的key即可发送企微通知
 
 # 7. Release Note
 
