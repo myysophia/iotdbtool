@@ -276,7 +276,17 @@ keep-local为true时备份先落到从本地上传到OSS，使用oss-go-sdk，�
 ```bash
 1. 新增恢复iotdb备份逻辑
 ```
+# 问题
 
+restore 时，load tsfile 会有并发压力，导致pod oom。可以采用本地load.
+- 注意本地load时 -h 参数，对应每个pod的name
+```bash
+
+find /opt/ems-cn-1/data/ -name "*.tsfile" | xargs -I GG echo "/iotdb/sbin/start-cli.sh -h iotdb-datanode-0 -e \"load 'GG' verify=false  \";"
+
+ iotdbtools restore --config /opt/kubeconfig/cce-config-emsuat-new --namespace ems-uat --pods iotdb-datanode-1 \
+--bucketname iotdb-backup/ems-cn --file emscn_iotdb-datanode-1_20250218101001.tar.gz --verbose 1
+```
 
 
 # 展望与鸣谢
