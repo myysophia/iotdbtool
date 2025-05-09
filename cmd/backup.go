@@ -6,12 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"k8s.io/client-go/rest"
 	"os"
 	"strconv"
-
-	//"strconv"
 	"strings"
-	//"sync"
 	"time"
 
 	"encoding/json"
@@ -236,20 +234,20 @@ func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, contai
 	// 1. 创建本地文件
 	localFile, err := os.Create(fileName)
 	if err != nil {
-			return fmt.Errorf("创建本地文件失败: %v", err)
+		return fmt.Errorf("创建本地文件失败: %v", err)
 	}
 	defer localFile.Close()
 
 	// 2. 获取 Pod 中文件的流式 Reader
 	reader, err := getPodFileStream(clientset, namespace, podName, containerName, fileName, configPath)
 	if err != nil {
-			return fmt.Errorf("从 Pod 获取文件流失败: %v", err)
+		return fmt.Errorf("从 Pod 获取文件流失败: %v", err)
 	}
 	defer reader.Close()
 
 	// 3. 流式复制：逐块读取并写入本地文件，避免内存爆炸
 	if _, err := io.Copy(localFile, reader); err != nil {
-			return fmt.Errorf("流式复制失败: %v", err)
+		return fmt.Errorf("流式复制失败: %v", err)
 	}
 
 	log(1, "文件 %s 已从 pod %s 流式复制到本地", fileName, podName)
@@ -259,37 +257,36 @@ func copyFileFromPod(clientset *kubernetes.Clientset, namespace, podName, contai
 // 新增函数：返回文件内容的流式 Reader
 func getPodFileStream(clientset *kubernetes.Clientset, namespace, podName, containerName, fileName, configPath string) (io.ReadCloser, error) {
 	req := clientset.CoreV1().RESTClient().Post().
-			Resource("pods").
-			Name(podName).
-			Namespace(namespace).
-			SubResource("exec").
-			Param("container", containerName).
-			Param("command", "cat").
-			Param("stdin", "false").
-			Param("stdout", "true").
-			Param("stderr", "false").
-			Param("tty", "false")
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		Param("container", containerName).
+		Param("command", "cat").
+		Param("stdin", "false").
+		Param("stdout", "true").
+		Param("stderr", "false").
+		Param("tty", "false")
 
 	exec, err := remotecommand.NewSPDYExecutor(&rest.Config{Host: "api-server-address"}, "POST", req.URL())
 	if err != nil {
-			return nil, err
+		return nil, err
 	}
 
 	reader, writer := io.Pipe()
 	go func() {
-			defer writer.Close()
-			err = exec.Stream(remotecommand.StreamOptions{
-					Stdout: writer,
-					Stderr: os.Stderr,
-			})
-			if err != nil {
-					writer.CloseWithError(err)
-			}
+		defer writer.Close()
+		err = exec.Stream(remotecommand.StreamOptions{
+			Stdout: writer,
+			Stderr: os.Stderr,
+		})
+		if err != nil {
+			writer.CloseWithError(err)
+		}
 	}()
 
 	return reader, nil
 }
-
 
 func uploadToOSSFromPod(clientset *kubernetes.Clientset, namespace, podName, fileName, containerName, bucketName, configPath string) error {
 	err := trackStepDuration("env check", func() error {
@@ -825,7 +822,7 @@ func constructOSSURL(endpoint, bucketName, fileName string) string {
 		prefix := parts[1]
 		ossURL = fmt.Sprintf("https://%s.%s/%s/%s", bucketName, endpoint, prefix, url.PathEscape(fileName))
 	}
-        log(1, "ossURL: %s", ossURL)
+	log(1, "ossURL: %s", ossURL)
 	return ossURL
 }
 
