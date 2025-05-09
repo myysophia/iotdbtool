@@ -826,7 +826,7 @@ func constructOSSURL(endpoint, bucketName, fileName string) string {
 		prefix := parts[1]
 		ossURL = fmt.Sprintf("https://%s.%s/%s/%s", bucketName, endpoint, prefix, url.PathEscape(fileName))
 	}
-
+        log(1, "ossURL: %s", ossURL)
 	return ossURL
 }
 
