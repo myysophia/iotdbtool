@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import shutil
 import json
 import logging
 import os
@@ -206,6 +208,122 @@ def calc_time_range(config: RuntimeConfig, target: date) -> Dict[str, int]:
     }
 
 
+def _format_local_datetime(dt: datetime, tz: ZoneInfo) -> str:
+    local = dt.astimezone(tz)
+    base = local.strftime("%Y-%m-%d %H:%M:%S")
+    millis = local.microsecond // 1000
+    if millis:
+        return f"{base}.{millis:03d}"
+    return base
+
+
+def convert_time_to_timezone(raw_value: str, tz: ZoneInfo) -> Optional[str]:
+    value = raw_value.strip()
+    if not value:
+        return None
+
+    # 处理整数或浮点时间戳（默认毫秒）
+    try:
+        if value.startswith("-"):
+            numeric_candidate = value[1:]
+        else:
+            numeric_candidate = value
+        if numeric_candidate.isdigit():
+            timestamp = int(value)
+            if abs(timestamp) >= 1_000_000_000_000:  # 毫秒级
+                seconds = timestamp / 1000
+            else:  # 秒级
+                seconds = float(timestamp)
+            dt_utc = datetime.fromtimestamp(seconds, tz=timezone.utc)
+            return _format_local_datetime(dt_utc, tz)
+    except (ValueError, OverflowError):
+        pass
+
+    # 尝试处理浮点时间戳
+    try:
+        numeric_float = float(value)
+        if abs(numeric_float) >= 1_000_000_000_000:  # 毫秒
+            seconds = numeric_float / 1000
+        else:
+            seconds = numeric_float
+        dt_utc = datetime.fromtimestamp(seconds, tz=timezone.utc)
+        return _format_local_datetime(dt_utc, tz)
+    except (ValueError, OverflowError):
+        pass
+
+    # 尝试解析 ISO 时间字符串
+    candidate = value.replace("Z", "+00:00")
+    if "T" not in candidate and " " in candidate:
+        candidate = candidate.replace(" ", "T", 1)
+    try:
+        dt = datetime.fromisoformat(candidate)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return _format_local_datetime(dt, tz)
+    except ValueError:
+        return None
+
+
+def normalize_csv_timezone(csv_path: Path, tz: ZoneInfo) -> None:
+    tmp_path = csv_path.with_suffix(csv_path.suffix + ".tmp")
+    with csv_path.open("r", encoding="utf-8", newline="") as src:
+        reader = csv.reader(src)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return
+
+        with tmp_path.open("w", encoding="utf-8", newline="") as dst:
+            writer = csv.writer(dst)
+            writer.writerow(header)
+            time_idx = next(
+                (idx for idx, name in enumerate(header) if name.strip().lower() == "time"),
+                0,
+            )
+            for row in reader:
+                if time_idx < len(row):
+                    converted = convert_time_to_timezone(row[time_idx], tz)
+                    if converted is not None:
+                        row[time_idx] = converted
+                writer.writerow(row)
+
+    tmp_path.replace(csv_path)
+
+
+def normalize_device_csv(device_dir: Path, tz: ZoneInfo) -> None:
+    for csv_file in device_dir.glob("*.csv"):
+        try:
+            normalize_csv_timezone(csv_file, tz)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("CSV 时区转换失败 %s: %s", csv_file, exc)
+
+
+def rename_device_csv(device_dir: Path, device: str, measurements: Iterable[str], target_date: date) -> None:
+    day_suffix = target_date.strftime("%Y%m%d")
+    measurements = list(measurements)
+    for index, measurement in enumerate(measurements):
+        canonical_prefix = f"root.energy.{device}.{measurement}"
+        pattern = f"root.energy.{device}{index}_*.csv"
+        matched_files = sorted(device_dir.glob(pattern))
+
+        if not matched_files:
+            # 若已存在符合规范的文件，跳过
+            existing = sorted(device_dir.glob(f"{canonical_prefix}*.csv"))
+            if existing:
+                continue
+            logging.warning("未找到测点 %s 对应的导出文件，匹配模式 %s", measurement, pattern)
+            continue
+
+        for seq, src in enumerate(matched_files):
+            suffix = "" if seq == 0 else f"_{seq}"
+            dst = device_dir / f"{canonical_prefix}{suffix}.{day_suffix}.csv"
+            if dst.exists():
+                dst.unlink()
+            src.rename(dst)
+
+
 def build_sql_content(device: str, config: RuntimeConfig, time_range: Dict[str, int]) -> str:
     start_ms = time_range["start"]
     end_ms = time_range["end"]
@@ -235,6 +353,8 @@ def run_command(cmd: List[str], env: Optional[Dict[str, str]] = None) -> None:
 def export_device(device: str, config: RuntimeConfig, time_range: Dict[str, int], target_date: date) -> Path:
     logging.info("开始导出设备 %s", device)
     device_dir = config.workdir / device
+    if device_dir.exists():
+        shutil.rmtree(device_dir)
     device_dir.mkdir(parents=True, exist_ok=True)
     sql_file = device_dir / f"{device}.sql"
     sql_content = build_sql_content(device, config, time_range)
@@ -260,6 +380,9 @@ def export_device(device: str, config: RuntimeConfig, time_range: Dict[str, int]
         str(config.query_timeout_ms),
     ]
     run_command(cmd)
+
+    normalize_device_csv(device_dir, config.timezone)
+    rename_device_csv(device_dir, device, config.measurements, target_date)
 
     archive_name = f"{device}_{target_date.strftime('%Y%m%d')}.tar.gz"
     archive_path = config.output_dir / target_date.strftime("%Y%m%d")
